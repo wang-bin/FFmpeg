@@ -587,10 +587,15 @@ static int mediacodec_dec_parse_video_format(AVCodecContext *avctx, MediaCodecDe
     }
 
     /* Optional fields */
-    AMEDIAFORMAT_GET_INT32(s->crop_top,    "crop-top",    0);
-    AMEDIAFORMAT_GET_INT32(s->crop_bottom, "crop-bottom", 0);
-    AMEDIAFORMAT_GET_INT32(s->crop_left,   "crop-left",   0);
-    AMEDIAFORMAT_GET_INT32(s->crop_right,  "crop-right",  0);
+    if (ff_AMediaFormat_getInt32(s->format, "crop-top", &s->crop_top) && ff_AMediaFormat_getInt32(s->format, "crop-bottom", &s->crop_bottom))
+        height = s->crop_bottom + 1 - s->crop_top;
+    else
+        height = s->height;
+
+    if (ff_AMediaFormat_getInt32(s->format, "crop-left", &s->crop_left) && ff_AMediaFormat_getInt32(s->format, "crop-right", &s->crop_right))
+        width = s->crop_right + 1 - s->crop_left;
+    else
+        width = s->width;
 
     // Try "crop" for NDK
     if (!(s->crop_right && s->crop_bottom) && s->use_ndk_codec)
