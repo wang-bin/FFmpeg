@@ -484,13 +484,15 @@ static int mediacodec_dec_parse_format(AVCodecContext *avctx, MediaCodecDecConte
     }
 
     /* Optional fields */
-    AMEDIAFORMAT_GET_INT32(s->crop_top,    "crop-top",    0);
-    AMEDIAFORMAT_GET_INT32(s->crop_bottom, "crop-bottom", 0);
-    AMEDIAFORMAT_GET_INT32(s->crop_left,   "crop-left",   0);
-    AMEDIAFORMAT_GET_INT32(s->crop_right,  "crop-right",  0);
+    if (ff_AMediaFormat_getInt32(s->format, "crop-top", &s->crop_top) && ff_AMediaFormat_getInt32(s->format, "crop-bottom", &s->crop_bottom))
+        height = s->crop_bottom + 1 - s->crop_top;
+    else
+        height = s->height;
 
-    width = s->crop_right + 1 - s->crop_left;
-    height = s->crop_bottom + 1 - s->crop_top;
+    if (ff_AMediaFormat_getInt32(s->format, "crop-left", &s->crop_left) && ff_AMediaFormat_getInt32(s->format, "crop-right", &s->crop_right))
+        width = s->crop_right + 1 - s->crop_left;
+    else
+        width = s->width;
 
     AMEDIAFORMAT_GET_INT32(s->display_width,  "display-width",  0);
     AMEDIAFORMAT_GET_INT32(s->display_height, "display-height", 0);
