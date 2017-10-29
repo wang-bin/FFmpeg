@@ -41,6 +41,10 @@
 #include <AvailabilityMacros.h>
 #include <TargetConditionals.h>
 
+#if !__has_builtin(__builtin_available)
+#define __builtin_available(...) (true)
+#endif
+
 #ifndef kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder
 #  define kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder CFSTR("RequireHardwareAcceleratedVideoDecoder")
 #endif
@@ -737,7 +741,7 @@ static void videotoolbox_decoder_callback(void *opaque,
 
 static OSStatus videotoolbox_session_decode_frame(AVCodecContext *avctx)
 {
-    OSStatus status;
+    OSStatus status = kVTInvalidSessionErr;
     CMSampleBufferRef sample_buf;
     AVVideotoolboxContext *videotoolbox = videotoolbox_get_context(avctx);
     VTContext *vtctx = avctx->internal->hwaccel_priv_data;
@@ -749,13 +753,15 @@ static OSStatus videotoolbox_session_decode_frame(AVCodecContext *avctx)
     if (!sample_buf)
         return -1;
 
-    status = VTDecompressionSessionDecodeFrame(videotoolbox->session,
+    if (__builtin_available(macOS 10.8, iOS 8.0, tvOS 10.2, *)) {
+        status = VTDecompressionSessionDecodeFrame(videotoolbox->session,
                                                sample_buf,
                                                0,       // decodeFlags
                                                NULL,    // sourceFrameRefCon
                                                0);      // infoFlagsOut
-    if (status == noErr)
-        status = VTDecompressionSessionWaitForAsynchronousFrames(videotoolbox->session);
+        if (status == noErr)
+            status = VTDecompressionSessionWaitForAsynchronousFrames(videotoolbox->session);
+    }
 
     CFRelease(sample_buf);
 
@@ -896,7 +902,7 @@ static CFDictionaryRef videotoolbox_decoder_config_create(CMVideoCodecType codec
 static int videotoolbox_start(AVCodecContext *avctx)
 {
     AVVideotoolboxContext *videotoolbox = videotoolbox_get_context(avctx);
-    OSStatus status;
+    OSStatus status = kVTInvalidSessionErr;
     VTDecompressionOutputCallbackRecord decoder_cb;
     CFDictionaryRef decoder_spec;
     CFDictionaryRef buf_attr;
@@ -990,7 +996,8 @@ static int videotoolbox_start(AVCodecContext *avctx)
     decoder_cb.decompressionOutputCallback = videotoolbox_decoder_callback;
     decoder_cb.decompressionOutputRefCon   = avctx->internal->hwaccel_priv_data;
 
-    status = VTDecompressionSessionCreate(NULL,                      // allocator
+    if (__builtin_available(macOS 10.8, iOS 8.0, tvOS 10.2, *))
+        status = VTDecompressionSessionCreate(NULL,                      // allocator
                                           videotoolbox->cm_fmt_desc, // videoFormatDescription
                                           decoder_spec,              // videoDecoderSpecification
                                           buf_attr,                  // destinationImageBufferAttributes
