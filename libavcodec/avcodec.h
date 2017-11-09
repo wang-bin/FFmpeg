@@ -2034,6 +2034,10 @@ typedef struct AVHWAccel {
 #define AV_HWACCEL_FLAG_UNSAFE_OUTPUT (1 << 3)
 
 /**
+ * Hardware acceleration can use it's software implementation.
+ */
+#define AV_HWACCEL_FLAG_ALLOW_SOFTWARE (1 << 8)
+/**
  * @}
  */
 
