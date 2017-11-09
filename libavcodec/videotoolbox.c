@@ -851,9 +851,7 @@ static CFDictionaryRef videotoolbox_decoder_config_create(CMVideoCodecType codec
                                                                    &kCFTypeDictionaryValueCallBacks);
 
     CFDictionarySetValue(config_info,
-                        avctx->codec_id == AV_CODEC_ID_HEVC
-                        || avctx->codec_id == AV_CODEC_ID_PRORES
-                        || avctx->codec_id == AV_CODEC_ID_PRORES_RAW
+                         (avctx->hwaccel_flags & AV_HWACCEL_FLAG_ALLOW_SOFTWARE)
                             ?
                             kVTVideoDecoderSpecification_EnableHardwareAcceleratedVideoDecoder :
                             kVTVideoDecoderSpecification_RequireHardwareAcceleratedVideoDecoder,
