@@ -378,14 +378,23 @@ static av_cold int ffmmal_init_decoder(AVCodecContext *avctx)
     format_in = decoder->input[0]->format;
     format_in->type = MMAL_ES_TYPE_VIDEO;
     switch (avctx->codec_id) {
+    case AV_CODEC_ID_MJPEG:
+        format_in->encoding = MMAL_ENCODING_MJPEG;
+        break;
     case AV_CODEC_ID_MPEG2VIDEO:
         format_in->encoding = MMAL_ENCODING_MP2V;
         break;
     case AV_CODEC_ID_MPEG4:
         format_in->encoding = MMAL_ENCODING_MP4V;
         break;
+    case AV_CODEC_ID_VP8:
+        format_in->encoding = MMAL_ENCODING_VP8;
+        break;
     case AV_CODEC_ID_VC1:
         format_in->encoding = MMAL_ENCODING_WVC1;
+        break;
+    case AV_CODEC_ID_WMV3: // may be not enabled
+        format_in->encoding = MMAL_ENCODING_WMV3;
         break;
     case AV_CODEC_ID_H264:
     default:
@@ -812,6 +821,20 @@ static const AVCodecHWConfigInternal *const mmal_hw_configs[] = {
     NULL
 };
 
+AVHWAccel ff_vp8_mmal_hwaccel = {
+    .name       = "vp8_mmal",
+    .type       = AVMEDIA_TYPE_VIDEO,
+    .id         = AV_CODEC_ID_VP8,
+    .pix_fmt    = AV_PIX_FMT_MMAL,
+};
+
+AVHWAccel ff_wmv3_mmal_hwaccel = {
+    .name       = "wmv3_mmal",
+    .type       = AVMEDIA_TYPE_VIDEO,
+    .id         = AV_CODEC_ID_WMV3,
+    .pix_fmt    = AV_PIX_FMT_MMAL,
+};
+
 static const AVOption options[]={
     {"extra_buffers", "extra buffers", offsetof(MMALDecodeContext, extra_buffers), AV_OPT_TYPE_INT, {.i64 = 10}, 0, 256, 0},
     {"extra_decoder_buffers", "extra MMAL internal buffered frames", offsetof(MMALDecodeContext, extra_decoder_buffers), AV_OPT_TYPE_INT, {.i64 = 10}, 0, 256, 0},
@@ -849,6 +872,9 @@ static const AVOption options[]={
     };
 
 FFMMAL_DEC(h264, AV_CODEC_ID_H264)
+FFMMAL_DEC(mjpeg, AV_CODEC_ID_MJPEG)
 FFMMAL_DEC(mpeg2, AV_CODEC_ID_MPEG2VIDEO)
 FFMMAL_DEC(mpeg4, AV_CODEC_ID_MPEG4)
 FFMMAL_DEC(vc1, AV_CODEC_ID_VC1)
+FFMMAL_DEC(vp8, AV_CODEC_ID_VP8)
+FFMMAL_DEC(wmv3, AV_CODEC_ID_WMV3)
