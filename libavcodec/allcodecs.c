@@ -865,6 +865,7 @@ extern const FFCodec ff_hevc_vaapi_encoder;
 extern const FFCodec ff_hevc_videotoolbox_encoder;
 extern const FFCodec ff_libkvazaar_encoder;
 extern const FFCodec ff_mjpeg_cuvid_decoder;
+extern const FFCodec ff_mjpeg_mmal_decoder;
 extern const FFCodec ff_mjpeg_qsv_encoder;
 extern const FFCodec ff_mjpeg_qsv_decoder;
 extern const FFCodec ff_mjpeg_vaapi_encoder;
@@ -883,6 +884,7 @@ extern const FFCodec ff_vc1_cuvid_decoder;
 extern const FFCodec ff_vp8_cuvid_decoder;
 extern const FFCodec ff_vp8_mediacodec_decoder;
 extern const FFCodec ff_vp8_mediacodec_encoder;
+extern const FFCodec ff_vp8_mmal_decoder;
 extern const FFCodec ff_vp8_qsv_decoder;
 extern const FFCodec ff_vp8_v4l2m2m_encoder;
 extern const FFCodec ff_vp8_vaapi_encoder;
@@ -892,6 +894,7 @@ extern const FFCodec ff_vp9_mediacodec_encoder;
 extern const FFCodec ff_vp9_qsv_decoder;
 extern const FFCodec ff_vp9_vaapi_encoder;
 extern const FFCodec ff_vp9_qsv_encoder;
+extern const FFCodec ff_wmv3_mmal_decoder;
 
 // null codecs
 extern const FFCodec ff_vnull_decoder;
