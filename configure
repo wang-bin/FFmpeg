@@ -4497,6 +4497,7 @@ msvc_common_flags(){
             -lz)                  echo zlib.lib ;;
             -lx264)               echo libx264.lib ;;
             -lstdc++)             ;;
+            -libpath:*|-LIBPATH:*)echo $flag ;;
             -l*)                  echo ${flag#-l}.lib ;;
             -LARGEADDRESSAWARE)   echo $flag ;;
             -L*)                  echo -libpath:${flag#-L} ;;
