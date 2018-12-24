@@ -28,6 +28,7 @@
 #if defined(_MSC_VER)
 #include <stdlib.h>
 #include <intrin.h>
+#include <stdlib.h> // clang cl
 #endif
 #include "config.h"
 #include "libavutil/attributes.h"
