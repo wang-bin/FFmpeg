@@ -147,6 +147,9 @@ typedef struct NvencContext
 {
     AVClass *avclass;
 
+    uint32_t apiver_rt;
+    uint32_t config_ver_rt;
+
     NvencDynLoadFunctions nvenc_dload_funcs;
 
     NV_ENC_INITIALIZE_PARAMS init_encode_params;
