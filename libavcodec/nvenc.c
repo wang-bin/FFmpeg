@@ -135,7 +135,7 @@ static int nvenc_print_error(AVCodecContext *avctx, NVENCSTATUS err,
     NvencContext *ctx = avctx->priv_data;
     NV_ENCODE_API_FUNCTION_LIST *p_nvenc = &ctx->nvenc_dload_funcs.nvenc_funcs;
 
-    if (p_nvenc && ctx->nvencoder)
+    if (p_nvenc && ctx->nvencoder && p_nvenc->nvEncGetLastErrorString)
         details = p_nvenc->nvEncGetLastErrorString(ctx->nvencoder);
 #endif
 
@@ -1392,7 +1392,7 @@ static av_cold int nvenc_setup_encoder(AVCodecContext *avctx)
     }
 
 #ifdef NVENC_HAVE_CUSTREAM_PTR
-    if (ctx->cu_context) {
+    if (ctx->cu_context && p_nvenc->nvEncSetIOCudaStreams) {
         nv_status = p_nvenc->nvEncSetIOCudaStreams(ctx->nvencoder, &ctx->cu_stream, &ctx->cu_stream);
         if (nv_status != NV_ENC_SUCCESS) {
             nvenc_pop_context(avctx);
