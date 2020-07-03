@@ -1296,17 +1296,18 @@ static av_cold int nvenc_setup_encoder(AVCodecContext *avctx)
     else if (ctx->flags & NVENC_LOWLATENCY)
         ctx->init_encode_params.tuningInfo = NV_ENC_TUNING_INFO_LOW_LATENCY;
 
+    if (p_nvenc->nvEncGetEncodePresetConfigEx)
     nv_status = p_nvenc->nvEncGetEncodePresetConfigEx(ctx->nvencoder,
         ctx->init_encode_params.encodeGUID,
         ctx->init_encode_params.presetGUID,
         ctx->init_encode_params.tuningInfo,
         &preset_config);
-#else
+    else
+#endif
     nv_status = p_nvenc->nvEncGetEncodePresetConfig(ctx->nvencoder,
         ctx->init_encode_params.encodeGUID,
         ctx->init_encode_params.presetGUID,
         &preset_config);
-#endif
     if (nv_status != NV_ENC_SUCCESS)
         return nvenc_print_error(avctx, nv_status, "Cannot get the preset configuration");
 
