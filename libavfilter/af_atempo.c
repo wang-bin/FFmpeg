@@ -532,7 +532,7 @@ static int yae_load_frag(ATempoContext *atempo,
     if (frag->position[0] < start) {
         // what we don't have we substitute with zeros:
         zeros = FFMIN(start - frag->position[0], (int64_t)nsamples);
-        av_assert0(zeros != nsamples);
+        //av_assert0(zeros != nsamples);
 
         memset(dst, 0, zeros * atempo->stride);
         dst += zeros * atempo->stride;
