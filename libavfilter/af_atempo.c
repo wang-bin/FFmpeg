@@ -155,7 +155,7 @@ typedef struct ATempoContext {
     uint64_t nsamples_out;
 } ATempoContext;
 
-#define YAE_ATEMPO_MIN 0.5
+#define YAE_ATEMPO_MIN 0
 #define YAE_ATEMPO_MAX 100.0
 
 #define OFFSET(x) offsetof(ATempoContext, x)
@@ -439,7 +439,7 @@ static int yae_load_data(ATempoContext *atempo,
     }
 
     // samples are not expected to be skipped, unless tempo is greater than 2:
-    av_assert0(read_size <= atempo->ring || atempo->tempo > 2.0);
+    //av_assert0(read_size <= atempo->ring || atempo->tempo > 2.0);
 
     while (atempo->position[0] < stop_here && src < src_end) {
         int src_samples = (src_end - src) / atempo->stride;
@@ -536,7 +536,7 @@ static int yae_load_frag(ATempoContext *atempo,
     if (frag->position[0] < start) {
         // what we don't have we substitute with zeros:
         zeros = FFMIN(start - frag->position[0], (int64_t)nsamples);
-        av_assert0(zeros != nsamples);
+        //av_assert0(zeros != nsamples);
 
         memset(dst, 0, zeros * atempo->stride);
         dst += zeros * atempo->stride;
