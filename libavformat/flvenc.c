@@ -69,6 +69,7 @@ static const AVCodecTag flv_audio_codec_ids[] = {
     { AV_CODEC_ID_PCM_MULAW,  FLV_CODECID_PCM_MULAW  >> FLV_AUDIO_CODECID_OFFSET },
     { AV_CODEC_ID_PCM_ALAW,   FLV_CODECID_PCM_ALAW   >> FLV_AUDIO_CODECID_OFFSET },
     { AV_CODEC_ID_SPEEX,      FLV_CODECID_SPEEX      >> FLV_AUDIO_CODECID_OFFSET },
+    { AV_CODEC_ID_OPUS,       FLV_CODECID_OPUS       >> FLV_AUDIO_CODECID_OFFSET },
     { AV_CODEC_ID_OPUS,       MKBETAG('O', 'p', 'u', 's') },
     { AV_CODEC_ID_FLAC,       MKBETAG('f', 'L', 'a', 'C') },
     { AV_CODEC_ID_AC3,        MKBETAG('a', 'c', '-', '3') },

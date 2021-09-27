@@ -106,6 +106,7 @@ enum {
     FLV_CODECID_EX_HEADER            = 9 << FLV_AUDIO_CODECID_OFFSET,
     FLV_CODECID_AAC                  = 10<< FLV_AUDIO_CODECID_OFFSET,
     FLV_CODECID_SPEEX                = 11<< FLV_AUDIO_CODECID_OFFSET,
+    FLV_CODECID_OPUS                 = 13<< FLV_AUDIO_CODECID_OFFSET,
 };
 
 enum {
@@ -117,6 +118,7 @@ enum {
     FLV_CODECID_H264    = 7,
     FLV_CODECID_REALH263= 8,
     FLV_CODECID_MPEG4   = 9,
+    FLV_CODECID_HEVC    = 12,
 };
 
 enum {
