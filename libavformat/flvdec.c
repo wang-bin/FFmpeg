@@ -98,6 +98,7 @@ typedef struct FLVContext {
     int64_t *keyframe_times;
     int64_t *keyframe_filepositions;
     int missing_streams;
+    int check_tag_size;
     AVRational framerate;
     int64_t last_ts;
     int64_t time_offset;
@@ -1207,6 +1208,8 @@ static int flv_update_video_color_info(AVFormatContext *s, AVStream *st)
 
 static int flv_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
+    int64_t pb_size = 0;
+    uint8_t* pb_buf = s->pb->buf_ptr;
     FLVContext *flv = s->priv_data;
     int ret, i, size, flags;
     enum FlvTagType type;
@@ -1224,15 +1227,29 @@ static int flv_read_packet(AVFormatContext *s, AVPacket *pkt)
 retry:
     /* pkt size is repeated at end. skip it */
     pos  = avio_tell(s->pb);
+    if (flv->check_tag_size) {
+        pb_size = avio_size(s->pb);
+        if (pb_size - pos < 11 + 4) {
+            av_log(s, AV_LOG_INFO, "no enough data to parse flv tag header. current size: %"PRId64"\n", pb_size - pos);
+            return AVERROR_BUFFER_TOO_SMALL; // return EAGAIN may result in dead loop in avformat_find_stream_info() if custom io read & write are in the same thread
+        }
+    }
+    //type = (pb_buf[0] & 0x1F);
     type = (avio_r8(s->pb) & 0x1F);
     orig_size =
+    //size = (((pb_buf[1] << 8) | pb_buf[2]) << 8) | pb_buf[3];
     size = avio_rb24(s->pb);
+    if (flv->check_tag_size && pb_size - pos < 11 + 4 + size) {
+        av_log(s, AV_LOG_INFO, "no enough data to parse flv tag data. current size: %"PRId64" < %d\n", pb_size - pos, 11 + 4 + size);
+        return AVERROR_BUFFER_TOO_SMALL;
+    }
+    //avio_skip(s->pb, 4);
     flv->sum_flv_tag_size += size + 11LL;
     dts  = avio_rb24(s->pb);
     dts |= (unsigned)avio_r8(s->pb) << 24;
     av_log(s, AV_LOG_TRACE, "type:%d, size:%d, last:%d, dts:%"PRId64" pos:%"PRId64"\n", type, size, last, dts, avio_tell(s->pb));
     if (avio_feof(s->pb))
-        return AVERROR_EOF;
+        return AVERROR_EOF; //
     avio_skip(s->pb, 3); /* stream id, always 0 */
     flags = 0;
 
@@ -1593,6 +1610,7 @@ static const AVOption options[] = {
     { "flv_full_metadata", "Dump full metadata of the onMetadata", OFFSET(dump_full_metadata), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VD },
     { "flv_ignore_prevtag", "Ignore the Size of previous tag", OFFSET(trust_datasize), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VD },
     { "missing_streams", "", OFFSET(missing_streams), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 0xFF, VD | AV_OPT_FLAG_EXPORT | AV_OPT_FLAG_READONLY },
+    { "check_tag_size", "ensure enough data to parse a tag", OFFSET(check_tag_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 0xFF, VD },
     { NULL }
 };
 
