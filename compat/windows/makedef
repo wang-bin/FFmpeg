@@ -48,7 +48,9 @@ trap 'rm -f -- $libname' EXIT
 if [ -n "$AR" ]; then
     $AR rcs ${libname} $@ >/dev/null
 else
-    lib.exe -out:${libname} $@ >/dev/null
+    echo $@ >objs${libname}.txt
+    lib.exe -out:${libname} @objs${libname}.txt >/dev/null
+    rm objs${libname}.txt
 fi
 if [ $? != 0 ]; then
     echo "Could not create temporary library." >&2
