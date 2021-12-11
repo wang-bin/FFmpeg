@@ -59,7 +59,9 @@ else
         machine_flag="-machine:arm64ec"
         ;;
     esac
-    lib.exe ${machine_flag} -out:${libname} $@ >/dev/null
+    echo $@ >objs${libname}.txt
+    lib.exe ${machine_flag} -out:${libname} @objs${libname}.txt >/dev/null
+    rm objs${libname}.txt
 fi
 if [ $? != 0 ]; then
     echo "Could not create temporary library." >&2
