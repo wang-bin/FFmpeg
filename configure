@@ -5207,8 +5207,8 @@ msvc_common_flags(){
             -libpath:*|-LIBPATH:*)echo $flag ;;
             -l*)                  echo ${flag#-l}.lib ;;
             -LARGEADDRESSAWARE)   echo $flag ;;
-            -L*) [ "$_flags_type" != "link" ] || echo -libpath:${flag#-L} ;;
-            -I*) [ "$_flags_type" = "link" ] || echo $flag ;;
+            -L*) [ "$_flags_type" != "link" ] || ([ -n "$MSYSTEM" ] && (echo $flag |sed 's,-L\/\([a-zA-Z]\)\(\/.*\),-libpath:\1:\2,' -) || echo -libpath:${flag#-L}) ;;
+            -I*) [ "$_flags_type" = "link" ] || ([ -n "$MSYSTEM" ] && (echo $flag |sed 's,-I\/\([a-zA-Z]\)\(\/.*\),-I\1:\2,' -) || echo $flag) ;;
             -D*) [ "$_flags_type" = "link" ] || echo $flag ;;
             -Wl,*)                ;;
             *)                    echo $flag ;;
