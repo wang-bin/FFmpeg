@@ -90,7 +90,7 @@ COMPILE_MSA = $(call COMPILE,CC,MSAFLAGS)
 	-$(if $(ASMSTRIPFLAGS), $(STRIP) $(ASMSTRIPFLAGS) $@)
 
 %.o: %.rc
-	$(WINDRES) $(IFLAGS) $(foreach ARG,$(CC_DEPFLAGS),--preprocessor-arg "$(ARG)") -o $@ $<
+	$(WINDRES) $(WINDRESFLAGS) $(IFLAGS) $(foreach ARG,$(CC_DEPFLAGS),--preprocessor-arg "$(ARG)") -o $@ $<
 
 %.i: %.c
 	$(CC) $(CCFLAGS) $(CC_E) $<
