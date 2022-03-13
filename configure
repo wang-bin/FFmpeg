@@ -5592,7 +5592,7 @@ case $target_os in
             # Cannot build both shared and static libs when using dllimport.
             disable static
         fi
-        ! enabled small && test_cmd $windres --version && enable gnu_windres
+        test_cmd $windres --version && enable gnu_windres
         enabled x86_32 && check_ldflags -Wl,--large-address-aware
         shlibdir_default="$bindir_default"
         SLIBPREF=""
@@ -5642,7 +5642,7 @@ case $target_os in
             # Cannot build both shared and static libs with MSVC or icl.
             disable static
         fi
-        ! enabled small && test_cmd $windres --version && enable gnu_windres
+        test_cmd $windres --version && enable gnu_windres
         enabled x86_32 && check_ldflags -LARGEADDRESSAWARE
         shlibdir_default="$bindir_default"
         SLIBPREF=""
