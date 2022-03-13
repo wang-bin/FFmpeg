@@ -6226,7 +6226,7 @@ case $target_os in
             # Cannot build both shared and static libs when using dllimport.
             disable static
         fi
-        ! enabled small && test_cmd $windres --version && enable gnu_windres
+        test_cmd $windres --version && enable gnu_windres
         enabled x86_32 && check_ldflags -Wl,--large-address-aware
         add_cppflags -DWIN32_LEAN_AND_MEAN
         shlibdir_default="$bindir_default"
@@ -6276,7 +6276,7 @@ case $target_os in
             disable static
             LIBSUF="-static.lib"
         fi
-        ! enabled small && test_cmd $windres --version && enable gnu_windres
+        test_cmd $windres --version && enable gnu_windres
         enabled x86_32 && check_ldflags -LARGEADDRESSAWARE
         add_cppflags -DWIN32_LEAN_AND_MEAN
         shlibdir_default="$bindir_default"
