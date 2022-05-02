@@ -122,4 +122,7 @@ void ff_gnutls_deinit(void);
 int ff_openssl_init(void);
 void ff_openssl_deinit(void);
 
+void ff_wolfssl_init(void);
+void ff_wolfssl_deinit(void);
+
 #endif /* AVFORMAT_TLS_H */
