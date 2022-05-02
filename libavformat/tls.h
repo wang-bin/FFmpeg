@@ -125,6 +125,9 @@ int ff_ssl_gen_key_cert(char *key_buf, size_t key_sz, char *cert_buf, size_t cer
 void ff_gnutls_init(void);
 void ff_gnutls_deinit(void);
 
+void ff_wolfssl_init(void);
+void ff_wolfssl_deinit(void);
+
 /**
  * Whether the packet is a DTLS packet, as defined by RFC 5764 Section 5.1.2.
  */
