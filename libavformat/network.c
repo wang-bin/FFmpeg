@@ -44,6 +44,9 @@ int ff_tls_init(void)
 #if CONFIG_GNUTLS
     ff_gnutls_init();
 #endif
+#if CONFIG_WOLFSSL
+    ff_wolfssl_init();
+#endif
 #endif
     return 0;
 }
@@ -56,6 +59,9 @@ void ff_tls_deinit(void)
 #endif
 #if CONFIG_GNUTLS
     ff_gnutls_deinit();
+#endif
+#if CONFIG_WOLFSSL
+    ff_wolfssl_deinit();
 #endif
 #endif
 }
