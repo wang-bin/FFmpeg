@@ -55,6 +55,9 @@ typedef struct TLSShared {
 
 int ff_tls_open_underlying(TLSShared *c, URLContext *parent, const char *uri, AVDictionary **options);
 
+void ff_wolfssl_init(void);
+void ff_wolfssl_deinit(void);
+
 void ff_gnutls_init(void);
 void ff_gnutls_deinit(void);
 
