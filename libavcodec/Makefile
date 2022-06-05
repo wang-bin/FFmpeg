@@ -411,6 +411,7 @@ OBJS-$(CONFIG_HEVC_VAAPI_ENCODER)      += vaapi_encode_h265.o h265_profile_level
 OBJS-$(CONFIG_HEVC_V4L2M2M_DECODER)    += v4l2_m2m_dec.o
 OBJS-$(CONFIG_HEVC_V4L2M2M_ENCODER)    += v4l2_m2m_enc.o
 OBJS-$(CONFIG_HEVC_VIDEOTOOLBOX_ENCODER) += videotoolboxenc.o
+OBJS-$(CONFIG_HEVC_LIBDE265_DECODER)   += libde265dec.o
 OBJS-$(CONFIG_HNM4_VIDEO_DECODER)      += hnm4video.o
 OBJS-$(CONFIG_HQ_HQA_DECODER)          += hq_hqa.o hq_hqadata.o hq_hqadsp.o \
                                           canopus.o
