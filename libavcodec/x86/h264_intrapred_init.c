@@ -269,6 +269,7 @@ av_cold void ff_h264_pred_init_x86(H264PredContext *h, int codec_id,
             }
         }
     } else if (bit_depth == 10) {
+#if H264_MAX_BIT_DEPTH >= 10
         if (EXTERNAL_MMXEXT(cpu_flags)) {
             h->pred4x4[DC_PRED             ] = ff_pred4x4_dc_10_mmxext;
             h->pred4x4[HOR_UP_PRED         ] = ff_pred4x4_horizontal_up_10_mmxext;
@@ -332,5 +333,6 @@ av_cold void ff_h264_pred_init_x86(H264PredContext *h, int codec_id,
             h->pred8x8l[VERT_RIGHT_PRED     ] = ff_pred8x8l_vertical_right_10_avx;
             h->pred8x8l[HOR_UP_PRED         ] = ff_pred8x8l_horizontal_up_10_avx;
         }
+#endif /* H264_MAX_BIT_DEPTH >= 10 */
     }
 }
