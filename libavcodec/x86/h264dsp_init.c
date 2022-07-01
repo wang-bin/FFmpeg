@@ -275,6 +275,7 @@ av_cold void ff_h264dsp_init_x86(H264DSPContext *c, const int bit_depth,
             c->h264_idct_dc_add     = ff_h264_idct_dc_add_8_avx;
         }
     } else if (bit_depth == 10) {
+#if H264_MAX_BIT_DEPTH >= 10
         if (EXTERNAL_MMXEXT(cpu_flags)) {
 #if ARCH_X86_32 && !HAVE_ALIGNED_STACK
             c->h264_v_loop_filter_luma         = ff_deblock_v_luma_10_mmxext;
@@ -362,6 +363,7 @@ av_cold void ff_h264dsp_init_x86(H264DSPContext *c, const int bit_depth,
             c->h264_h_loop_filter_luma_intra   = ff_deblock_h_luma_intra_10_avx;
 #endif /* HAVE_ALIGNED_STACK */
         }
+#endif /* H264_MAX_BIT_DEPTH >= 10 */
     }
 #endif
 }

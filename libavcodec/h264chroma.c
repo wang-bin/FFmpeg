@@ -24,9 +24,11 @@
 #include "h264chroma_template.c"
 #undef BIT_DEPTH
 
+#if H264_MAX_BIT_DEPTH > 8
 #define BIT_DEPTH 16
 #include "h264chroma_template.c"
 #undef BIT_DEPTH
+#endif
 
 #define SET_CHROMA(depth)                                                   \
     c->put_h264_chroma_pixels_tab[0] = put_h264_chroma_mc8_ ## depth ## _c; \
@@ -41,7 +43,9 @@
 av_cold void ff_h264chroma_init(H264ChromaContext *c, int bit_depth)
 {
     if (bit_depth > 8 && bit_depth <= 16) {
+#if H264_MAX_BIT_DEPTH > 8
         SET_CHROMA(16);
+#endif
     } else {
         SET_CHROMA(8);
     }
