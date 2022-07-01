@@ -37,21 +37,29 @@
 #include "h264pred_template.c"
 #undef BIT_DEPTH
 
+#if H264_MAX_BIT_DEPTH >= 9
 #define BIT_DEPTH 9
 #include "h264pred_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 10
 #define BIT_DEPTH 10
 #include "h264pred_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 12
 #define BIT_DEPTH 12
 #include "h264pred_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 14
 #define BIT_DEPTH 14
 #include "h264pred_template.c"
 #undef BIT_DEPTH
+#endif
 
 static void pred4x4_127_dc_c(uint8_t *src, const uint8_t *topright,
                              ptrdiff_t _stride)
@@ -538,18 +546,26 @@ av_cold void ff_h264_pred_init(H264PredContext *h, int codec_id,
     h->pred16x16_add[ HOR_PRED8x8]= FUNCC(pred16x16_horizontal_add        , depth);\
 
     switch (bit_depth) {
+#if H264_MAX_BIT_DEPTH >= 9
         case 9:
             H264_PRED(9)
             break;
+#endif
+#if H264_MAX_BIT_DEPTH >= 10
         case 10:
             H264_PRED(10)
             break;
+#endif
+#if H264_MAX_BIT_DEPTH >= 12
         case 12:
             H264_PRED(12)
             break;
+#endif
+#if H264_MAX_BIT_DEPTH >= 14
         case 14:
             H264_PRED(14)
             break;
+#endif
         default:
             av_assert0(bit_depth<=8);
             H264_PRED(8)
