@@ -450,6 +450,7 @@ Advanced options (experts only):
                             crashes and arbitrary code execution, it may be faster, but
                             should only be used with trusted input)
   --sws-max-filter-size=N  the max filter size swscale uses [$sws_max_filter_size_default]
+  --h264-max-bit-depth=N   the max h264 decoding bit depth [$h264_max_bit_depth_default]
 
 Optimization options (experts only):
   --disable-asm            disable all assembly optimizations
@@ -2884,6 +2885,7 @@ CMDLINE_SET="
     env
     extra_version
     gas
+    h264_max_bit_depth
     host_cc
     host_cflags
     host_extralibs
@@ -4479,6 +4481,9 @@ enable valgrind_backtrace
 
 sws_max_filter_size_default=256
 set_default sws_max_filter_size
+
+h264_max_bit_depth_default=10
+set_default h264_max_bit_depth
 
 # internal components are enabled by default
 enable $EXTRALIBS_LIST
@@ -8779,6 +8784,7 @@ cat > $TMPH <<EOF
 #define BUILDSUF "$build_suffix"
 #define SLIBSUF "$SLIBSUF"
 #define SWS_MAX_FILTER_SIZE $sws_max_filter_size
+#define H264_MAX_BIT_DEPTH $h264_max_bit_depth
 EOF
 
 test -n "$assert_level" &&

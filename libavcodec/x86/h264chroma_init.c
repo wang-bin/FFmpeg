@@ -62,7 +62,7 @@ av_cold void ff_h264chroma_init_x86(H264ChromaContext *c, int bit_depth)
         c->avg_h264_chroma_pixels_tab[2] = ff_avg_h264_chroma_mc2_mmxext;
         c->put_h264_chroma_pixels_tab[2] = ff_put_h264_chroma_mc2_mmxext;
     }
-
+#if H264_MAX_BIT_DEPTH > 8
     if (EXTERNAL_MMXEXT(cpu_flags) && bit_depth > 8 && bit_depth <= 10) {
         c->put_h264_chroma_pixels_tab[2] = ff_put_h264_chroma_mc2_10_mmxext;
         c->avg_h264_chroma_pixels_tab[2] = ff_avg_h264_chroma_mc2_10_mmxext;
@@ -88,4 +88,5 @@ av_cold void ff_h264chroma_init_x86(H264ChromaContext *c, int bit_depth)
         c->put_h264_chroma_pixels_tab[0] = ff_put_h264_chroma_mc8_10_avx;
         c->avg_h264_chroma_pixels_tab[0] = ff_avg_h264_chroma_mc8_10_avx;
     }
+#endif /* H264_MAX_BIT_DEPTH > 8 */
 }
