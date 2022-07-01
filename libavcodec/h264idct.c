@@ -31,18 +31,26 @@
 #include "h264idct_template.c"
 #undef BIT_DEPTH
 
+#if H264_MAX_BIT_DEPTH >= 9
 #define BIT_DEPTH 9
 #include "h264idct_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 10
 #define BIT_DEPTH 10
 #include "h264idct_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 12
 #define BIT_DEPTH 12
 #include "h264idct_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 14
 #define BIT_DEPTH 14
 #include "h264idct_template.c"
 #undef BIT_DEPTH
+#endif
