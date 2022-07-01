@@ -28,23 +28,32 @@
 #include "h264qpel_template.c"
 #undef BIT_DEPTH
 
+#if H264_MAX_BIT_DEPTH >= 9
 #define BIT_DEPTH 9
 #include "h264qpel_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 10
 #define BIT_DEPTH 10
 #include "h264qpel_template.c"
 #undef BIT_DEPTH
+#endif
+
 #undef pixeltmp
 
 #define pixeltmp int32_t
+#if H264_MAX_BIT_DEPTH >= 12
 #define BIT_DEPTH 12
 #include "h264qpel_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if H264_MAX_BIT_DEPTH >= 14
 #define BIT_DEPTH 14
 #include "h264qpel_template.c"
 #undef BIT_DEPTH
+#endif
 
 
 av_cold void ff_h264qpel_init(H264QpelContext *c, int bit_depth)
@@ -82,18 +91,26 @@ av_cold void ff_h264qpel_init(H264QpelContext *c, int bit_depth)
     default:
         SET_QPEL(8);
         break;
+#if H264_MAX_BIT_DEPTH >= 9
     case 9:
         SET_QPEL(9);
         break;
+#endif
+#if H264_MAX_BIT_DEPTH >= 10
     case 10:
         SET_QPEL(10);
         break;
+#endif
+#if H264_MAX_BIT_DEPTH >= 12
     case 12:
         SET_QPEL(12);
         break;
+#endif
+#if H264_MAX_BIT_DEPTH >= 14
     case 14:
         SET_QPEL(14);
         break;
+#endif
     }
 
 #if ARCH_AARCH64
