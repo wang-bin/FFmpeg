@@ -63,6 +63,7 @@ av_cold void ff_h264chroma_init_x86(H264ChromaContext *c, int bit_depth)
         c->put_h264_chroma_pixels_tab[2] = ff_put_h264_chroma_mc2_sse2;
     }
 
+#if H264_MAX_BIT_DEPTH > 8
     if (EXTERNAL_SSE2(cpu_flags) && bit_depth > 8 && bit_depth <= 10) {
         c->put_h264_chroma_pixels_tab[2] = ff_put_h264_chroma_mc2_10_sse2;
         c->avg_h264_chroma_pixels_tab[2] = ff_avg_h264_chroma_mc2_10_sse2;
@@ -71,6 +72,7 @@ av_cold void ff_h264chroma_init_x86(H264ChromaContext *c, int bit_depth)
         c->put_h264_chroma_pixels_tab[0] = ff_put_h264_chroma_mc8_10_sse2;
         c->avg_h264_chroma_pixels_tab[0] = ff_avg_h264_chroma_mc8_10_sse2;
     }
+#endif /* H264_MAX_BIT_DEPTH > 8 */
 
     if (EXTERNAL_SSSE3(cpu_flags) && !high_bit_depth) {
         c->put_h264_chroma_pixels_tab[0] = ff_put_h264_chroma_mc8_rnd_ssse3;
@@ -79,10 +81,12 @@ av_cold void ff_h264chroma_init_x86(H264ChromaContext *c, int bit_depth)
         c->avg_h264_chroma_pixels_tab[1] = ff_avg_h264_chroma_mc4_ssse3;
     }
 
+#if H264_MAX_BIT_DEPTH > 8
     if (EXTERNAL_AVX(cpu_flags) && bit_depth > 8 && bit_depth <= 10) {
         // AVX implies !cache64.
         // TODO: Port cache(32|64) detection from x264.
         c->put_h264_chroma_pixels_tab[0] = ff_put_h264_chroma_mc8_10_avx;
         c->avg_h264_chroma_pixels_tab[0] = ff_avg_h264_chroma_mc8_10_avx;
     }
+#endif /* H264_MAX_BIT_DEPTH > 8 */
 }
