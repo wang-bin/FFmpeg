@@ -7,6 +7,9 @@ HEADERS = avformat.h                                                    \
           version_major.h                                               \
 
 OBJS = allformats.o         \
+	   avc.o				\
+	   hevc.o				\
+	   nal.o 				\
        avformat.o           \
        avio.o               \
        aviobuf.o            \
