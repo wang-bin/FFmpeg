@@ -20,7 +20,7 @@
 
 #include "vulkan_video.h"
 
-const FFVkCodecMap ff_vk_codec_map[AV_CODEC_ID_FIRST_AUDIO] = {
+const FFVkCodecMap ff_vk_codec_map[] = {
     [AV_CODEC_ID_H264] = {
                            0,
                            0,

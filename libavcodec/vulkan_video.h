@@ -49,7 +49,7 @@ typedef struct FFVkVideoSession {
 /**
  * Index is codec_id.
  */
-extern const FFVkCodecMap ff_vk_codec_map[AV_CODEC_ID_FIRST_AUDIO];
+extern const FFVkCodecMap ff_vk_codec_map[];
 
 /**
  * Get pixfmt from a Vulkan format.
