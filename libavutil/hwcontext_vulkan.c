@@ -25,9 +25,8 @@
 #include "compat/w32dlfcn.h"
 #else
 #include <dlfcn.h>
-#endif
-
 #include <unistd.h>
+#endif
 
 #include "config.h"
 #include "pixdesc.h"
