@@ -220,6 +220,7 @@ typedef struct HLSContext {
     AVIOInterruptCB *interrupt_callback;
     AVDictionary *avio_opts;
     AVDictionary *seg_format_opts;
+    int seg_allow_img;
     char *allowed_extensions;
     char *allowed_segment_extensions;
     int extension_picky;
@@ -2155,7 +2156,30 @@ static int hls_read_header(AVFormatContext *s)
             pls->ctx->max_analyze_duration = s->max_analyze_duration > 0 ? s->max_analyze_duration : 4 * AV_TIME_BASE;
             pls->ctx->interrupt_callback = s->interrupt_callback;
             url = av_strdup(pls->segments[0]->url);
-            ret = av_probe_input_buffer(&pls->pb.pub, &in_fmt, url, NULL, 0, 0);
+            unsigned skip = 0;
+            if (!c->seg_allow_img) {
+                uint8_t b[10] = { 0 }; // probe at most 10
+                avio_read(&pls->pb.pub, b, sizeof(b));
+                avio_seek(&pls->pb.pub, 0, SEEK_SET);
+                const AVProbeData pd = {
+                    .buf = b,               // png, gif read_probe only use this field
+                    .buf_size = sizeof(b),
+                };
+// optional: ffifmt(av_find_input_format("gif" or "gif_pipe" or "png_pipe"))->read_probe
+                int max_score = AVPROBE_SCORE_MAX - 2; // png_pipe, gif, gif_pipe score >= AVPROBE_SCORE_MAX - 1
+                const AVInputFormat* img_fmt = av_probe_input_format2(&pd, 1, &max_score); //
+                if (img_fmt) {
+                    if (av_strstart(img_fmt->name, "png", NULL)) { // "png_pipe"
+                        skip = 3; // skip until ts sync byte 'G'(0x47)
+                        av_log(s, AV_LOG_INFO, "segments pretend to be png\n");
+                    } else if (av_strstart(img_fmt->name, "gif", NULL)) {    // "gif", "gif_pipe"
+                        skip = 10;
+                        av_log(s, AV_LOG_INFO, "segments pretend to be gif\n");
+                    }
+                }
+            }
+
+            ret = av_probe_input_buffer(&pls->pb.pub, &in_fmt, url, NULL, skip, 0);
 
             for (int n = 0; n < pls->n_segments; n++)
                 if (ret >= 0)
@@ -2623,6 +2647,8 @@ static const AVOption hls_options[] = {
         OFFSET(http_seekable), AV_OPT_TYPE_BOOL, { .i64 = -1}, -1, 1, FLAGS},
     {"seg_format_options", "Set options for segment demuxer",
         OFFSET(seg_format_opts), AV_OPT_TYPE_DICT, {.str = NULL}, 0, 0, FLAGS},
+    {"seg_allow_img", "Allow segments detected as gif and png images, 0 = disable, 1 = enable",
+        OFFSET(seg_allow_img), AV_OPT_TYPE_BOOL, { .i64 = 0}, 0, 1, FLAGS},
     {NULL}
 };
 
