@@ -254,9 +254,9 @@ static int decode_profile_tier_level(GetBitContext *gb, AVCodecContext *avctx,
             profile_name = ff_hevc_profiles[i].name;
             break;
         }
-#endif
     av_log(avctx, profile_name ? AV_LOG_DEBUG : AV_LOG_WARNING,
            "%s profile bitstream\n", profile_name ? profile_name : "Unknown");
+#endif
 
     for (i = 0; i < 32; i++) {
         ptl->profile_compatibility_flag[i] = get_bits1(gb);
