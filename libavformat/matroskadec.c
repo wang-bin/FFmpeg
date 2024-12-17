@@ -3772,6 +3772,7 @@ static int matroska_parse_webvtt(MatroskaDemuxContext *matroska,
                                  MatroskaTrack *track,
                                  AVStream *st,
                                  uint8_t *data, int data_len,
+                                 MatroskaBlockMore *blockmore, int nb_blockmore,
                                  uint64_t timecode,
                                  uint64_t duration,
                                  int64_t pos)
@@ -3781,13 +3782,28 @@ static int matroska_parse_webvtt(MatroskaDemuxContext *matroska,
     int id_len, settings_len, text_len;
     uint8_t *p, *q;
     int err;
+    const int webm_style = !strncmp(track->codec_id, "D_WEBVTT/", 9);
 
     if (data_len <= 0)
         return AVERROR_INVALIDDATA;
 
+    if (!webm_style) {
+        text = data;
+        text_len = data_len;
+        if (nb_blockmore <= 0)
+            goto make_pkt;
+        data = blockmore->additional.data;
+        data_len = blockmore->additional.size;
+    }
+
     p = data;
     q = data + data_len;
 
+    if (webm_style)
+        goto parse_id;
+    goto parse_settings;
+
+parse_id:
     id = p;
     id_len = -1;
     while (p < q) {
@@ -3803,7 +3819,11 @@ static int matroska_parse_webvtt(MatroskaDemuxContext *matroska,
     if (p >= q || *p != '\n')
         return AVERROR_INVALIDDATA;
     p++;
+    if (webm_style)
+        goto parse_settings;
+    goto make_pkt;
 
+parse_settings:
     settings = p;
     settings_len = -1;
     while (p < q) {
@@ -3819,7 +3839,11 @@ static int matroska_parse_webvtt(MatroskaDemuxContext *matroska,
     if (p >= q || *p != '\n')
         return AVERROR_INVALIDDATA;
     p++;
+    if (webm_style)
+        goto parse_text;
+    goto parse_id;
 
+parse_text:
     text = p;
     text_len = q - p;
     while (text_len > 0) {
@@ -3830,6 +3854,7 @@ static int matroska_parse_webvtt(MatroskaDemuxContext *matroska,
         text_len = len;
     }
 
+make_pkt:
     if (text_len <= 0)
         return AVERROR_INVALIDDATA;
 
@@ -4222,6 +4247,7 @@ static int matroska_parse_block(MatroskaDemuxContext *matroska, AVBufferRef *buf
         } else if (st->codecpar->codec_id == AV_CODEC_ID_WEBVTT) {
             res = matroska_parse_webvtt(matroska, track, st,
                                         out_data, out_size,
+                                        blockmore, nb_blockmore,
                                         timecode, lace_duration,
                                         pos);
             if (!buf)
