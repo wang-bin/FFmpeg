@@ -63,6 +63,7 @@ const CodecTags ff_mkv_codec_tags[]={
     {"D_WEBVTT/CAPTIONS"    , AV_CODEC_ID_WEBVTT},
     {"D_WEBVTT/DESCRIPTIONS", AV_CODEC_ID_WEBVTT},
     {"D_WEBVTT/METADATA"    , AV_CODEC_ID_WEBVTT},
+    {"S_TEXT/WEBVTT"        , AV_CODEC_ID_WEBVTT},
 
     {"S_TEXT/UTF8"      , AV_CODEC_ID_SUBRIP},
     {"S_TEXT/UTF8"      , AV_CODEC_ID_TEXT},
