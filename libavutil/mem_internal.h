@@ -24,7 +24,7 @@
 #include "config.h"
 
 #include <stdint.h>
-#ifndef _MSC_VER
+#if !defined(_MSC_VER) || defined(__clang__)
 #include <stdalign.h>
 #endif
 
@@ -80,7 +80,7 @@
     #define DECLARE_ALIGNED_T(n,t,v)    alignas(FFMIN(n, 16)) t v
     #define DECLARE_ASM_ALIGNED(n,t,v)  alignas(FFMIN(n, 16)) t av_used v
     #define DECLARE_ASM_CONST(n,t,v)    alignas(FFMIN(n, 16)) static const t av_used v
-#elif defined(_MSC_VER)
+#elif defined(_MSC_VER) && !defined(__clang__)
     #define DECLARE_ALIGNED_T(n,t,v)    __declspec(align(n)) t v
     #define DECLARE_ASM_ALIGNED(n,t,v)  __declspec(align(n)) t av_used v
     #define DECLARE_ASM_CONST(n,t,v)    __declspec(align(n)) static const t av_used v
