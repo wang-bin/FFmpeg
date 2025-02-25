@@ -2077,7 +2077,7 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
     }
 
     /* Apple MJPEG-A */
-    if ((s->start_code == APP1) && (len > (0x28 - 8))) {
+    if (s->start_code == APP1 && id != AV_RB32("http") && len > (0x28 - 8)) {
         id   = get_bits_long(&s->gb, 32);
         len -= 4;
         /* Apple MJPEG-A */
@@ -2160,6 +2160,101 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
         if (s->iccread > s->iccnum)
             av_log(s->avctx, AV_LOG_WARNING, "Read more ICC markers than are supposed to be coded\n");
     }
+
+    if (s->start_code == APP1 && id == AV_RB32("http") && len >= 20) {
+        // xmp: the follow bytes are ://ns.adobe.com/xap/1.0/
+        // xmp ext: the follow bytes are ://ns.adobe.com/xmp/extension/
+        len -= 6;
+        // TODO: memcmp
+        if (get_bits_long(&s->gb, 32) == AV_RB32("://n") && get_bits(&s->gb, 16) == AV_RB16("s.")) {
+            av_log(s->avctx, AV_LOG_INFO, "check adoble XMP metadata\n");
+            len -= 4;
+            const unsigned int v = get_bits_long(&s->gb, 32); // can be adoble, google, apple
+            if (v == AV_RB32("adob")) {
+                len -= 6;
+                av_log(s->avctx, AV_LOG_INFO, "check adoble XMP metadata type\n");
+                if (get_bits_long(&s->gb, 32) == AV_RB32("e.co") && get_bits(&s->gb, 16) == AV_RB16("m/")) {
+                    len -= 8;
+                    const unsigned int s1 = get_bits_long(&s->gb, 32);
+                    const unsigned int s2 = get_bits_long(&s->gb, 32);
+                    if (s1 == AV_RB32("xap/") && s2 == AV_RB32("1.0/")) {
+                        if (s->avctx->debug & FF_DEBUG_PICT_INFO)
+                            av_log(s->avctx, AV_LOG_INFO, "XMP metadata found\n");
+                    } else {
+                        len -= 6;
+                        if (s1 == AV_RB32("xmp/") && s2 == AV_RB32("exte") && get_bits_long(&s->gb, 32) == AV_RB32("nsio") && get_bits(&s->gb, 16) == AV_RB16("n/")) {
+                            if (s->avctx->debug & FF_DEBUG_PICT_INFO)
+                                av_log(s->avctx, AV_LOG_INFO, "XMP extension metadata found\n");
+                        }
+                    }
+                }
+                skip_bits(&s->gb, 8); // 0
+            }
+        }
+        goto out;
+    }
+
+    av_log(s->avctx, AV_LOG_INFO, "len: %d\n", len);
+    if (s->start_code == APP2 && AV_RB32("MPF\0") && len == 82) {
+        /*
+        size_t calculateMpfSize() {
+        return sizeof(kMpfSig) +                 // Signature. 4
+         kMpEndianSize +                   // Endianness. 4
+         sizeof(uint32_t) +                // Index IFD Offset
+         sizeof(uint16_t) +                // Tag count
+         kTagSerializedCount * kTagSize +  // 3 tags at 12 bytes each. 3*12
+         sizeof(uint32_t) +                // Attribute IFD offset
+         kNumPictures * kMPEntrySize;      // MP Entries for each image. 2*16
+}
+        */
+        const unsigned mp_endian = get_bits_long(&s->gb, 32);
+        int be = mp_endian == AV_RB32(jpegr_mp_be);
+        if (!be) {
+            be = mp_endian != AV_RB32(jpegr_mp_le);
+            if (be) {
+                av_log(s->avctx, AV_LOG_ERROR, "Invalid MPF endian\n");
+            }
+        }
+        skip_bits(&s->gb, 32); // Index IFD Offset
+        skip_bits(&s->gb, 16); // Tag count. 3 tags: version, number of images, MP entries
+
+        skip_bits(&s->gb, 16); // version tag: 0xB000
+        skip_bits(&s->gb, 16); // version type: 0x7
+        skip_bits(&s->gb, 32); // version count: 4
+        skip_bits(&s->gb, 32); // expected version: '0100'
+
+        skip_bits(&s->gb, 16); // number of images tag: 0xB001
+        skip_bits(&s->gb, 16); // number of images type: 0x4
+        skip_bits(&s->gb, 32); // number of images count: 1
+        skip_bits(&s->gb, 32); // number of pictures: 2
+
+        skip_bits(&s->gb, 16); // MP entries tag: 0xB002
+        skip_bits(&s->gb, 16); // MP entries type: 0x7
+        skip_bits(&s->gb, 32); // MP entriy size 16 * pictures count 2
+        skip_bits(&s->gb, 32); // MP entries offset
+
+        skip_bits(&s->gb, 32); // IFD offset: 0
+        // primary image
+        skip_bits(&s->gb, 32); // attribute: primary. 0x030000
+        s->jpegr_primary_size = get_bits_long(&s->gb, 32);
+        s->jpegr_primary_offset = get_bits_long(&s->gb, 32);
+        skip_bits(&s->gb, 32);
+        // secondary image
+        skip_bits(&s->gb, 32); // attribute: jpeg. 0
+        s->jpegr_secondary_size = get_bits_long(&s->gb, 32);
+        s->jpegr_secondary_offset = get_bits_long(&s->gb, 32);
+        skip_bits(&s->gb, 32);
+        if (!be) {
+            s->jpegr_primary_size = av_bswap32(s->jpegr_primary_size);
+            s->jpegr_primary_offset = av_bswap32(s->jpegr_primary_offset);
+            s->jpegr_secondary_size = av_bswap32(s->jpegr_secondary_size);
+            s->jpegr_secondary_offset = av_bswap32(s->jpegr_secondary_offset);
+        }
+        av_log(s->avctx, AV_LOG_INFO, "primary: %u+%u, secondary: %u+%u\n", s->jpegr_primary_offset, s->jpegr_primary_size, s->jpegr_secondary_offset, s->jpegr_secondary_size);
+        len -= 82;
+
+        goto out;
+    } while (0);
 
 out:
     /* slow but needed for extreme adobe jpegs */
@@ -2541,6 +2636,13 @@ FF_ENABLE_DEPRECATION_WARNINGS
             break;
         case EOI:
 eoi_parser:
+// s->jpegr_secondary_offset < primary_size. (ptrdiff_t)(buf_ptr - buf) == primary_size
+            av_log(avctx, AV_LOG_INFO, "buf offset: %ld, remain: %ld, secondary: %u + %u\n", (ptrdiff_t)(buf_ptr - buf), (ptrdiff_t)(buf_end - buf_ptr), s->jpegr_secondary_offset, s->jpegr_secondary_size);
+            if ((ptrdiff_t)(buf_end - buf_ptr) == s->jpegr_secondary_size) {
+                av_log(avctx, AV_LOG_INFO, "decoding secondary image...\n");
+                //s->cur_scan = 0;
+                //continue;
+            }
             if (!avctx->hwaccel && avctx->skip_frame != AVDISCARD_ALL &&
                 s->progressive && s->cur_scan && s->got_picture)
                 mjpeg_idct_scan_progressive_ac(s);
@@ -2938,8 +3040,19 @@ the_end_no_picture:
 int ff_mjpeg_decode_frame(AVCodecContext *avctx, AVFrame *frame, int *got_frame,
                           AVPacket *avpkt)
 {
-    return ff_mjpeg_decode_frame_from_buf(avctx, frame, got_frame,
+    // TODO: decode primary, then secondary if enabled and available, and set as primary's side data
+    MJpegDecodeContext *s = avctx->priv_data;
+    int ret = ff_mjpeg_decode_frame_from_buf(avctx, frame, got_frame,
                                           avpkt, avpkt->data, avpkt->size);
+
+    if (ret < 0)
+        return ret;
+    av_log(avctx, AV_LOG_INFO, "primary: %u, secondary: %u\n", s->jpegr_primary_size, s->jpegr_secondary_size);
+    if (s->jpegr_secondary_size > 0 && s->jpegr_primary_size > 0) {
+        // TODO: pixfmt
+        ret = ff_mjpeg_decode_frame_from_buf(avctx, frame, got_frame, avpkt, avpkt->data + s->jpegr_primary_size, s->jpegr_secondary_size);
+    }
+    return ret;
 }
 
 
@@ -3000,6 +3113,7 @@ static void decode_flush(AVCodecContext *avctx)
 static const AVOption options[] = {
     { "extern_huff", "Use external huffman table.",
       OFFSET(extern_huff), AV_OPT_TYPE_BOOL, { .i64 = 0 }, 0, 1, VD },
+    // TODO: gain_map
     { NULL },
 };
 

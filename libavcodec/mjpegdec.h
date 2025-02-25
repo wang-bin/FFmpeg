@@ -165,6 +165,11 @@ typedef struct MJpegDecodeContext {
     enum AVPixelFormat hwaccel_pix_fmt;
     void *hwaccel_picture_private;
     struct JLSState *jls_state;
+
+    uint32_t jpegr_primary_offset;
+    uint32_t jpegr_primary_size;
+    uint32_t jpegr_secondary_offset;
+    uint32_t jpegr_secondary_size;
 } MJpegDecodeContext;
 
 int ff_mjpeg_build_vlc(VLC *vlc, const uint8_t *bits_table,

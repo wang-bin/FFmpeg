@@ -128,4 +128,7 @@ enum JpegMarker {
         case 7: ret= (left + top)>>1; break;\
     }
 
+
+static const uint8_t jpegr_mp_le[] = {0x49, 0x49, 0x2A, 0x00};
+static const uint8_t jpegr_mp_be[] = {0x4D, 0x4D, 0x00, 0x2A};
 #endif /* AVCODEC_MJPEG_H */
