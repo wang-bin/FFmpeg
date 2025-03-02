@@ -34,6 +34,7 @@ PREPEND = $(eval $(1) = $(patsubst %,$$(%), $(2)) $(value $(1)))
 
 # NASM requires -I path terminated with /
 IFLAGS     := -I. -I$(SRC_LINK)/
+IFLAGS_WSL     := -I. -I$(SRC_PATH)/
 CPPFLAGS   := $(IFLAGS) $(CPPFLAGS)
 CFLAGS     += $(ECFLAGS)
 CCFLAGS     = $(CPPFLAGS) $(CFLAGS)
@@ -43,7 +44,7 @@ ASFLAGS    := $(CPPFLAGS) $(ASFLAGS)
 # Use PREPEND here so that later (target-dependent) additions to CPPFLAGS
 # end up in CXXFLAGS.
 $(call PREPEND,CXXFLAGS, CPPFLAGS CFLAGS)
-X86ASMFLAGS += $(IFLAGS:%=%/) -I$(<D)/ -Pconfig.asm
+X86ASMFLAGS += $(IFLAGS_WSL:%=%/) -I$(<D)/ -Pconfig.asm
 
 HOSTCCFLAGS = $(IFLAGS) $(HOSTCPPFLAGS) $(HOSTCFLAGS)
 LDFLAGS    := $(ALLFFLIBS:%=$(LD_PATH)lib%) $(LDFLAGS)
@@ -52,12 +53,16 @@ define COMPILE
        $(call $(1)DEP,$(1))
        $($(1)) $($(1)FLAGS) $($(2)) $($(1)_DEPFLAGS) $($(1)_C) $($(1)_O) $(patsubst $(SRC_PATH)/%,$(SRC_LINK)/%,$<)
 endef
+define COMPILE_WSL
+       $(call $(1)DEP,$(1))
+       $($(1)) $($(1)FLAGS) $($(2)) $($(1)_DEPFLAGS) $($(1)_C) $($(1)_O) $(patsubst $(SRC_PATH)/%,$(SRC_PATH)/%,$<)
+endef
 
 COMPILE_C = $(call COMPILE,CC)
 COMPILE_CXX = $(call COMPILE,CXX)
 COMPILE_S = $(call COMPILE,AS)
 COMPILE_M = $(call COMPILE,OBJCC)
-COMPILE_X86ASM = $(call COMPILE,X86ASM)
+COMPILE_X86ASM = $(call COMPILE_WSL,X86ASM)
 COMPILE_HOSTC = $(call COMPILE,HOSTCC)
 COMPILE_NVCC = $(call COMPILE,NVCC)
 COMPILE_MMI = $(call COMPILE,CC,MMIFLAGS)

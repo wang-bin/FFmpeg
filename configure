@@ -1513,6 +1513,20 @@ check_lib_cpp(){
         enable $name && eval ${name}_extralibs="\$@"
 }
 
+pkg_config_pp() {
+    ret=$($pkg_config $@)
+    [ "$toolchain" = msvc -a  -x "$(command -v wslpath)" ] || { echo $ret; return; }
+    local p=
+    for v in $ret; do
+        case $v in
+            -I*|-L*|-l*) p="$p $(echo $v |cut -c1-2)$(wslpath -m $(echo $v |cut -c3-))" ;; # ${v:0:2} not supported by sh
+            /*) p="$p $(wslpath -m $v)" ;;
+            *)  p="$p $v" ;;
+        esac
+    done
+    echo $p
+}
+
 test_pkg_config(){
     log test_pkg_config "$@"
     name="$1"
@@ -1523,9 +1537,9 @@ test_pkg_config(){
     shift 4
     disable $name
     test_cmd $pkg_config --exists --print-errors "$pkg_version" || return
-    pkg_cflags=$($pkg_config --cflags $pkg_config_flags $pkg)
-    pkg_libs=$($pkg_config --libs $pkg_config_flags $pkg)
-    pkg_incdir=$($pkg_config --variable=includedir $pkg_config_flags $pkg)
+    pkg_cflags=$(pkg_config_pp --cflags $pkg_config_flags $pkg)
+    pkg_libs=$(pkg_config_pp --libs $pkg_config_flags $pkg)
+    pkg_incdir=$(pkg_config_pp --variable=includedir $pkg_config_flags $pkg)
     check_func_headers "$headers" "$funcs" $pkg_cflags $pkg_libs "$@" &&
         enable $name &&
         set_sanitized "${name}_cflags"    $pkg_cflags &&
@@ -6014,7 +6028,7 @@ link_name=$(mktemp -u $TMPDIR/name_XXXXXXXX)
 mkdir "$link_dest"
 $ln_s "$link_dest" "$link_name"
 touch "$link_dest/test_file"
-if [ "$source_path" != "." ] && [ "$source_path" != "src" ] && ([ ! -d src ] || [ -L src ]) && [ -e "$link_name/test_file" ]; then
+if [ "$source_path" != "." ] && [ "$source_path" != "src" ] && ([ ! -d src ] || [ -L src ]) && [ -e "$link_name/test_file" ] && ([ "$toolchain" != msvc ] || [ ! -x "$(command -v wslpath)" ]); then
     # create link to source path
     [ -e src ] && rm src
     $ln_s "$source_path" src
@@ -6023,6 +6037,7 @@ else
     # creating directory links doesn't work
     # fall back to using the full source path
     source_link="$source_path"
+    [ "$toolchain" = msvc -a  -x "$(command -v wslpath)" ] && source_link=$(wslpath -m "$source_path")
 fi
 # cleanup
 rm -r "$link_dest"
@@ -7828,16 +7843,16 @@ done
 
 if disabled stdatomic; then
     if enabled atomics_win32; then
-        add_cppflags '-I\$(SRC_PATH)/compat/atomics/win32'
+        add_cppflags '-I\$(SRC_LINK)/compat/atomics/win32'
     else
         enabled threads && die "Threading is enabled, but no atomics are available"
-        add_cppflags '-I\$(SRC_PATH)/compat/atomics/dummy'
+        add_cppflags '-I\$(SRC_LINK)/compat/atomics/dummy'
     fi
 fi
 
 check_builtin stdbit "stdbit.h assert.h" \
     'static_assert(__STDC_VERSION_STDBIT_H__ >= 202311L, "Compiler lacks stdbit.h")' || \
-    add_cppflags '-I\$(SRC_PATH)/compat/stdbit'
+    add_cppflags '-I\$(SRC_LINK)/compat/stdbit'
 
 # Check if requested libraries were found.
 for lib in $AUTODETECT_LIBS; do

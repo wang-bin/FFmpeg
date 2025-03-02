@@ -27,4 +27,4 @@ OBJS-$(CONFIG_OPUS_ENCODER) +=  \
     opus/tab.o                  \
 
 
-libavcodec/opus/%.o: CPPFLAGS += -I$(SRC_PATH)/libavcodec/
+libavcodec/opus/%.o: CPPFLAGS += -I$(SRC_LINK)/libavcodec/

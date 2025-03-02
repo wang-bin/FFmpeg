@@ -25,4 +25,4 @@ OBJS-$(CONFIG_HEVC_SEI) +=  \
     hevc/sei.o              \
 
 
-libavcodec/hevc/%.o: CPPFLAGS += -I$(SRC_PATH)/libavcodec/
+libavcodec/hevc/%.o: CPPFLAGS += -I$(SRC_LINK)/libavcodec/
