@@ -339,6 +339,72 @@ static inline uint32_t api_ver(uint32_t major_ver, uint32_t minor_ver)
     return major_ver | (minor_ver << 24);
 }
 
+static inline uint32_t config_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // av1 abi break, hevc fields rename but same layout
+        return struct_ver_rt(ctx, 8) | (1<<31);
+    if (api >= api_ver(12, 0)) // add av1
+        return struct_ver_rt(ctx, 8) | (1<<31);
+    if (api >= api_ver(8,1))
+        return struct_ver_rt(ctx, 7) | (1<<31);
+    return struct_ver_rt(ctx, 6) | (1<<31);
+}
+
+static inline uint32_t pic_param_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // abi break, but we don't use these fields
+        return struct_ver_rt(ctx, 6) | (1<<31);
+    if (api >= api_ver(12, 0))
+        return struct_ver_rt(ctx, 6) | (1<<31);
+    return struct_ver_rt(ctx, 4) | (1<<31);
+}
+
+static inline uint32_t lock_bs_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // abi break, but we don't use these fields
+        return struct_ver_rt(ctx, 2);
+    return struct_ver_rt(ctx, 1);
+}
+
+static inline uint32_t reg_res_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // increase reserved size
+        return struct_ver_rt(ctx, 5);
+    if (api >= api_ver(12, 0))
+        return struct_ver_rt(ctx, 4);
+    return struct_ver_rt(ctx, 3);
+}
+
+static inline uint32_t input_buf_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // increase reserved size
+        return struct_ver_rt(ctx, 2);
+    return struct_ver_rt(ctx, 1);
+}
+
+static inline uint32_t init_param_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // abi break
+        return struct_ver_rt(ctx, 7) | (1<<31);
+    if (api >= api_ver(12, 1)) // abi break. breaks tuningInfo, reconfig reInitEncodeParams
+        return struct_ver_rt(ctx, 6) | (1<<31);
+    return struct_ver_rt(ctx, 5) | (1<<31);
+}
+
+static inline uint32_t reconf_param_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // abi break
+        return struct_ver_rt(ctx, 2) | (1<<31);
+    return struct_ver_rt(ctx, 1) | (1<<31);
+}
+
+static inline uint32_t preset_conf_ver(uint32_t api)
+{
+    if (api >= api_ver(12, 2)) // abi break
+        return struct_ver_rt(ctx, 5) | (1<<31);
+    return struct_ver_rt(ctx, 4) | (1<<31);
+}
+
 static av_cold int nvenc_load_libraries(AVCodecContext *avctx)
 {
     NvencContext *ctx            = avctx->priv_data;
@@ -369,9 +435,7 @@ static av_cold int nvenc_load_libraries(AVCodecContext *avctx)
     nvenc_max_minor = nvenc_max_ver & 0xf;
     //ctx->apiver_rt = NVENCAPI_VERSION;
     ctx->apiver_rt = api_ver(nvenc_max_major, nvenc_max_minor);
-    ctx->config_ver_rt = struct_ver_rt(ctx, 7) | (1<<31); /*NV_ENC_CONFIG_VER */
-    if (ctx->apiver_rt < api_ver(8, 1))
-        ctx->config_ver_rt = struct_ver_rt(ctx, 6) | (1<<31);
+    ctx->config_ver_rt = config_ver(ctx->apiver_rt); /*NV_ENC_CONFIG_VER */
     func_ver = struct_ver_rt(ctx, 2);
     av_log(avctx, AV_LOG_INFO, "Loaded Nvenc version %d.%d\n", nvenc_max_major, nvenc_max_minor);
 
@@ -1558,10 +1622,14 @@ static av_cold int nvenc_setup_hevc_config(AVCodecContext *avctx)
 
     hevc->chromaFormatIDC = IS_YUV444(ctx->data_pix_fmt) ? 3 : IS_YUV422(ctx->data_pix_fmt) ? 2 : 1;
 
+    if (ctx->apiver_rt >= api_ver(12, 2))
 #ifdef NVENC_HAVE_NEW_BIT_DEPTH_API
+    {
     hevc->inputBitDepth = IS_10BIT(ctx->data_pix_fmt) ? NV_ENC_BIT_DEPTH_10 : NV_ENC_BIT_DEPTH_8;
     hevc->outputBitDepth = (IS_10BIT(ctx->data_pix_fmt) || ctx->highbitdepth) ? NV_ENC_BIT_DEPTH_10 : NV_ENC_BIT_DEPTH_8;
+    }
 #else
+    else
     hevc->pixelBitDepthMinus8 = IS_10BIT(ctx->data_pix_fmt) ? 2 : 0;
 #endif
 
@@ -1776,15 +1844,15 @@ static av_cold int nvenc_setup_encoder(AVCodecContext *avctx)
     int dw, dh;
 
     ctx->encode_config.version = ctx->config_ver_rt;//NV_ENC_CONFIG_VER;
-    ctx->init_encode_params.version = struct_ver_rt(ctx, 5) | (1<<31);//NV_ENC_INITIALIZE_PARAMS_VER;
+    ctx->init_encode_params.version = init_param_ver(ctx->apiver_rt);//NV_ENC_INITIALIZE_PARAMS_VER;
 
     ctx->init_encode_params.encodeHeight = avctx->height;
     ctx->init_encode_params.encodeWidth = avctx->width;
 
     ctx->init_encode_params.encodeConfig = &ctx->encode_config;
 
-    preset_config.version = struct_ver_rt(ctx, 4) | (1<<31);// NV_ENC_PRESET_CONFIG_VER;
-    preset_config.presetCfg.version = ctx->config_ver_rt;//NV_ENC_CONFIG_VER;
+    preset_config.version = preset_conf_ver(ctx->apiver_rt);// NV_ENC_PRESET_CONFIG_VER;
+    preset_config.presetCfg.version = ctx->config_ver_rt;//NV_ENC_CONFIG_VER; // FIXME: abi break in 12.2
 
 #ifdef NVENC_HAVE_NEW_PRESETS
     ctx->init_encode_params.tuningInfo = ctx->tuning_info;
@@ -1809,6 +1877,7 @@ static av_cold int nvenc_setup_encoder(AVCodecContext *avctx)
     if (nv_status != NV_ENC_SUCCESS)
         return nvenc_print_error(avctx, nv_status, "Cannot get the preset configuration");
 
+    // FIXME: abi break in 12.2
     memcpy(&ctx->encode_config, &preset_config.presetCfg, sizeof(ctx->encode_config));
 
     ctx->encode_config.version = ctx->config_ver_rt;//NV_ENC_CONFIG_VER;
@@ -2129,7 +2198,7 @@ av_cold int ff_nvenc_encode_close(AVCodecContext *avctx)
 
     /* the encoder has to be flushed before it can be closed */
     if (ctx->nvencoder) {
-        NV_ENC_PIC_PARAMS params        = { .version        = struct_ver_rt(ctx, 4) | (1<<31),// NV_ENC_PIC_PARAMS_VER,
+        NV_ENC_PIC_PARAMS params        = { .version        = pic_param_ver(ctx->apiver_rt),// NV_ENC_PIC_PARAMS_VER,
                                             .encodePicFlags = NV_ENC_PIC_FLAG_EOS };
 
         res = nvenc_push_context(avctx);
@@ -2353,7 +2422,7 @@ static int nvenc_register_frame(AVCodecContext *avctx, const AVFrame *frame)
     if (idx < 0)
         return idx;
 
-    reg.version            = struct_ver_rt(ctx, 3);// NV_ENC_REGISTER_RESOURCE_VER;
+    reg.version            = reg_res_ver(ctx->apiver_rt);// NV_ENC_REGISTER_RESOURCE_VER;
     reg.width              = frames_ctx->width;
     reg.height             = frames_ctx->height;
     reg.pitch              = frame->linesize[0];
@@ -2679,7 +2748,7 @@ static int process_output_surface(AVCodecContext *avctx, AVPacket *pkt, NvencSur
 
     enum AVPictureType pict_type;
 
-    lock_params.version = struct_ver_rt(ctx, 1);//NV_ENC_LOCK_BITSTREAM_VER;
+    lock_params.version = lock_bs_ver(ctx->apiver_rt);//NV_ENC_LOCK_BITSTREAM_VER;
 
     lock_params.doNotWait = 0;
     lock_params.outputBitstream = tmpoutsurf->output_surface;
@@ -2902,7 +2971,7 @@ static void reconfig_encoder(AVCodecContext *avctx, const AVFrame *frame)
     int reconfig_bitrate = 0, reconfig_dar = 0;
     int dw, dh;
 
-    params.version = struct_ver_rt(ctx, 1) | (1<<31);//NV_ENC_RECONFIGURE_PARAMS_VER;
+    params.version = reconf_param_ver(ctx->apiver_rt);//NV_ENC_RECONFIGURE_PARAMS_VER;
     params.reInitEncodeParams = ctx->init_encode_params;
 
     compute_dar(avctx, &dw, &dh);
@@ -3071,7 +3140,7 @@ static int nvenc_send_frame(AVCodecContext *avctx, const AVFrame *frame)
     NV_ENCODE_API_FUNCTION_LIST *p_nvenc = &dl_fn->nvenc_funcs;
 
     NV_ENC_PIC_PARAMS pic_params = { 0 };
-    pic_params.version = struct_ver_rt(ctx, 4) | (1<<31);//NV_ENC_PIC_PARAMS_VER;
+    pic_params.version = pic_param_ver(ctx->apiver_rt);//NV_ENC_PIC_PARAMS_VER;
 
     if ((!ctx->cu_context && !ctx->d3d11_device) || !ctx->nvencoder)
         return AVERROR(EINVAL);
