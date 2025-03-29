@@ -339,7 +339,7 @@ static const FFTXCodelet * const ff_tx_null_list[] = {
 /* Array of all compiled codelet lists. Order is irrelevant. */
 static const FFTXCodelet * const * const codelet_list[] = {
     ff_tx_codelet_list_float_c,
-    ff_tx_codelet_list_double_c,
+    //ff_tx_codelet_list_double_c,
     ff_tx_codelet_list_int32_c,
     ff_tx_null_list,
 #if HAVE_X86ASM
