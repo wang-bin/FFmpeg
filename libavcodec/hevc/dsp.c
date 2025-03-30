@@ -109,21 +109,29 @@ DECLARE_ALIGNED(16, const int8_t, ff_hevc_qpel_filters)[4][16] = {
     {  0,  1, -5, 17, 58,-10,  4, -1,  0,  1, -5, 17, 58,-10,  4, -1}
 };
 
+#if (H265_BIT_DEPTH_8 + 0)
 #define BIT_DEPTH 8
 #include "dsp_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if (H265_BIT_DEPTH_9 + 0)
 #define BIT_DEPTH 9
 #include "dsp_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if (H265_BIT_DEPTH_10 + 0)
 #define BIT_DEPTH 10
 #include "dsp_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if (H265_BIT_DEPTH_12 + 0)
 #define BIT_DEPTH 12
 #include "dsp_template.c"
 #undef BIT_DEPTH
+#endif
 
 void ff_hevc_dsp_init(HEVCDSPContext *hevcdsp, int bit_depth)
 {
@@ -245,15 +253,21 @@ void ff_hevc_dsp_init(HEVCDSPContext *hevcdsp, int bit_depth)
 int i = 0;
 
     switch (bit_depth) {
+#if (H265_BIT_DEPTH_9 + 0)
     case 9:
         HEVC_DSP(9);
         break;
+#endif
+#if (H265_BIT_DEPTH_10 + 0)
     case 10:
         HEVC_DSP(10);
         break;
+#endif
+#if (H265_BIT_DEPTH_12 + 0)
     case 12:
         HEVC_DSP(12);
         break;
+#endif
     default:
         HEVC_DSP(8);
         break;
