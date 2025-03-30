@@ -24,21 +24,29 @@
 
 #include "pred.h"
 
+#if (H265_BIT_DEPTH_8 + 0)
 #define BIT_DEPTH 8
 #include "libavcodec/hevc/pred_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if (H265_BIT_DEPTH_9 + 0)
 #define BIT_DEPTH 9
 #include "libavcodec/hevc/pred_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if (H265_BIT_DEPTH_10 + 0)
 #define BIT_DEPTH 10
 #include "libavcodec/hevc/pred_template.c"
 #undef BIT_DEPTH
+#endif
 
+#if (H265_BIT_DEPTH_12 + 0)
 #define BIT_DEPTH 12
 #include "libavcodec/hevc/pred_template.c"
 #undef BIT_DEPTH
+#endif
 
 void ff_hevc_pred_init(HEVCPredContext *hpc, int bit_depth)
 {
@@ -65,15 +73,21 @@ void ff_hevc_pred_init(HEVCPredContext *hpc, int bit_depth)
     hpc->ref_filter_strong  = FUNC(ref_filter_strong, depth);
 
     switch (bit_depth) {
+#if (H265_BIT_DEPTH_9 + 0)
     case 9:
         HEVC_PRED(9);
         break;
+#endif
+#if (H265_BIT_DEPTH_10 + 0)
     case 10:
         HEVC_PRED(10);
         break;
+#endif
+#if (H265_BIT_DEPTH_12 + 0)
     case 12:
         HEVC_PRED(12);
         break;
+#endif
     default:
         HEVC_PRED(8);
         break;
