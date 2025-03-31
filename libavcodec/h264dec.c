@@ -156,6 +156,8 @@ void ff_h264_free_tables(H264Context *h)
     av_freep(&h->mb2b_xy);
     av_freep(&h->mb2br_xy);
 
+    av_refstruct_pool_uninit(&h->h274db);
+
     av_refstruct_pool_uninit(&h->qscale_table_pool);
     av_refstruct_pool_uninit(&h->mb_type_pool);
     av_refstruct_pool_uninit(&h->motion_val_pool);

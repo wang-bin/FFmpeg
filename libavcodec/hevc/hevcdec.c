@@ -3495,9 +3495,15 @@ static int hevc_frame_end(HEVCContext *s, HEVCLayerContext *l)
         case AV_FILM_GRAIN_PARAMS_NONE:
             av_assert0(0);
             return AVERROR_BUG;
-        case AV_FILM_GRAIN_PARAMS_H274:
+        case AV_FILM_GRAIN_PARAMS_H274: {
+            if (!s->h274db) {
+                s->h274db = av_refstruct_allocz(sizeof(*s->h274db));
+                if (!s->h274db)
+                    return AVERROR(ENOMEM);
+            }
             ret = ff_h274_apply_film_grain(out->frame_grain, out->f,
-                                           &s->h274db, fgp);
+                                           s->h274db, fgp);
+        }
             break;
         case AV_FILM_GRAIN_PARAMS_AV1:
             ret = ff_aom_apply_film_grain(out->frame_grain, out->f, fgp);
@@ -3932,6 +3938,8 @@ static av_cold int hevc_decode_free(AVCodecContext *avctx)
     av_refstruct_unref(&s->vps);
     av_refstruct_unref(&s->pps);
 
+    av_refstruct_unref(&s->h274db);
+
     ff_dovi_ctx_unref(&s->dovi_ctx);
     av_buffer_unref(&s->rpu_buf);
 
@@ -4070,6 +4078,8 @@ static int hevc_update_thread_context(AVCodecContext *dst,
             s->nb_view_ids = s0->nb_view_ids;
         }
     }
+
+    av_refstruct_replace(&s->h274db, s0->h274db);
 
     ret = ff_h2645_sei_ctx_replace(&s->sei.common, &s0->sei.common);
     if (ret < 0)
