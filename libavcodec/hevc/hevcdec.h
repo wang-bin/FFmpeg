@@ -531,7 +531,7 @@ typedef struct HEVCContext {
     HEVCDSPContext hevcdsp;
     VideoDSPContext vdsp;
     BswapDSPContext bdsp;
-    H274FilmGrainDatabase h274db;
+    H274FilmGrainDatabase* h274db;  // Dyanmic allocation due to large size(676KB)
 
     /** used on BE to byteswap the lines for checksumming */
     uint8_t *checksum_buf;
