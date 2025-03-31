@@ -212,6 +212,7 @@ int ff_h264_field_end(H264Context *h, H264SliceContext *sl, int in_setup)
         const AVFrameSideData *sd = av_frame_get_side_data(cur->f, AV_FRAME_DATA_FILM_GRAIN_PARAMS);
 
         err = AVERROR_INVALIDDATA;
+#if CONFIG_FILM_GRAIN
         if (sd) {// a decoding error may have happened before the side data could be allocated
             if (!h->h274db) {
                 h->h274db = ff_refstruct_allocz(sizeof(*h->h274db));
@@ -221,6 +222,7 @@ int ff_h264_field_end(H264Context *h, H264SliceContext *sl, int in_setup)
             err = ff_h274_apply_film_grain(cur->f_grain, cur->f, h->h274db,
                                            (AVFilmGrainParams *) sd->data);
         }
+#endif // CONFIG_FILM_GRAIN
         if (err < 0) {
             av_log(h->avctx, AV_LOG_WARNING, "Failed synthesizing film "
                    "grain, ignoring: %s\n", av_err2str(err));
