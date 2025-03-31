@@ -115,7 +115,7 @@ OBJS-$(CONFIG_H264PRED)                += h264pred.o
 OBJS-$(CONFIG_H264QPEL)                += h264qpel.o
 OBJS-$(CONFIG_H264_SEI)                += h264_sei.o h2645_sei.o aom_film_grain.o
 OBJS-$(CONFIG_HEVCPARSE)               += h2645data.o h2645_parse.o h2645_vui.o
-OBJS-$(CONFIG_HEVC_SEI)                += h2645_sei.o aom_film_grain.o \
+OBJS-$(CONFIG_HEVC_SEI)                += h2645_sei.o \
                                           dynamic_hdr_vivid.o
 OBJS-$(CONFIG_HPELDSP)                 += hpeldsp.o
 OBJS-$(CONFIG_HUFFMAN)                 += huffman.o
@@ -380,6 +380,7 @@ OBJS-$(CONFIG_FFV1_ENCODER)            += ffv1enc.o ffv1_parse.o ffv1.o
 OBJS-$(CONFIG_FFV1_VULKAN_ENCODER)     += ffv1enc.o ffv1.o ffv1_vulkan.o ffv1enc_vulkan.o
 OBJS-$(CONFIG_FFWAVESYNTH_DECODER)     += ffwavesynth.o
 OBJS-$(CONFIG_FIC_DECODER)             += fic.o
+OBJS-$(CONFIG_FILM_GRAIN)			   += aom_film_grain.o h274.o
 OBJS-$(CONFIG_FITS_DECODER)            += fitsdec.o fits.o
 OBJS-$(CONFIG_FITS_ENCODER)            += fitsenc.o
 OBJS-$(CONFIG_FLAC_DECODER)            += flacdec.o flacdata.o flacdsp.o flac.o
@@ -424,7 +425,7 @@ OBJS-$(CONFIG_H264_DECODER)            += h264dec.o h264_cabac.o h264_cavlc.o \
                                           h264_direct.o h264_loopfilter.o  \
                                           h264_mb.o h264_picture.o \
                                           h264_refs.o \
-                                          h264_slice.o h264data.o h274.o
+                                          h264_slice.o h264data.o
 OBJS-$(CONFIG_H264_AMF_ENCODER)        += amfenc_h264.o
 OBJS-$(CONFIG_H264_AMF_DECODER)        += amfdec.o
 OBJS-$(CONFIG_H264_CUVID_DECODER)      += cuviddec.o
@@ -453,7 +454,7 @@ OBJS-$(CONFIG_HCA_DECODER)             += hcadec.o
 OBJS-$(CONFIG_HCOM_DECODER)            += hcom.o
 OBJS-$(CONFIG_HDR_DECODER)             += hdrdec.o
 OBJS-$(CONFIG_HDR_ENCODER)             += hdrenc.o
-OBJS-$(CONFIG_HEVC_DECODER)            += aom_film_grain.o h274.o
+OBJS-$(CONFIG_HEVC_DECODER)            +=
 OBJS-$(CONFIG_HEVC_AMF_ENCODER)        += amfenc_hevc.o
 OBJS-$(CONFIG_HEVC_AMF_DECODER)        += amfdec.o
 OBJS-$(CONFIG_HEVC_CUVID_DECODER)      += cuviddec.o

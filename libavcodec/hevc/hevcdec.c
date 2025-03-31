@@ -3488,6 +3488,7 @@ static int hevc_frame_end(HEVCContext *s, HEVCLayerContext *l)
     const AVFilmGrainParams *fgp;
     av_unused int ret;
 
+#if CONFIG_FILM_GRAIN
     if (out->needs_fg) {
         av_assert0(out->frame_grain->buf[0]);
         fgp = av_film_grain_params_select(out->f);
@@ -3511,6 +3512,7 @@ static int hevc_frame_end(HEVCContext *s, HEVCLayerContext *l)
         }
         av_assert1(ret >= 0);
     }
+#endif // CONFIG_FILM_GRAIN
 
     if (s->avctx->hwaccel) {
         ret = FF_HW_SIMPLE_CALL(s->avctx, end_frame);

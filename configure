@@ -137,6 +137,7 @@ Component options:
   --disable-network        disable network support [no]
   --disable-dwt            disable DWT code
   --disable-error-resilience disable error resilience code
+  --disable-film-grain     disable film grain code
   --disable-lsp            disable LSP code
   --disable-faan           disable floating point AAN (I)DCT code
   --disable-iamf           disable support for Immersive Audio Model
@@ -2109,6 +2110,7 @@ SUBSYSTEM_LIST="
     error_resilience
     faan
     fast_unaligned
+    film_grain
     iamf
     lsp
     pixelutils
@@ -2969,6 +2971,7 @@ atrac1_decoder_select="sinewin"
 atrac3p_decoder_select="sinewin"
 atrac3pal_decoder_select="sinewin"
 av1_decoder_select="atsc_a53 cbs_av1 dovi_rpudec"
+av1_decoder_suggest="film_grain"
 bink_decoder_select="blockdsp hpeldsp"
 binkaudio_dct_decoder_select="wma_freqs"
 binkaudio_rdft_decoder_select="wma_freqs"
@@ -3025,11 +3028,12 @@ h263i_decoder_select="h263_decoder"
 h263p_decoder_select="h263_decoder"
 h263p_encoder_select="h263_encoder"
 h264_decoder_select="cabac golomb h264chroma h264dsp h264parse h264pred h264qpel h264_sei videodsp"
-h264_decoder_suggest="error_resilience"
+h264_decoder_suggest="error_resilience film_grain"
 hap_decoder_select="snappy texturedsp"
 hap_encoder_deps="libsnappy"
 hap_encoder_select="texturedspenc"
 hevc_decoder_select="bswapdsp cabac dovi_rpudec golomb hevcparse hevc_sei videodsp"
+hevc_decoder_suggest="film_grain"
 huffyuv_decoder_select="bswapdsp huffyuvdsp llviddsp"
 huffyuv_encoder_select="bswapdsp huffman huffyuvencdsp llvidencdsp"
 hymt_decoder_select="huffyuv_decoder"

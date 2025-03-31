@@ -231,6 +231,7 @@ static int decode_registered_user_data(H2645SEI *h, GetByteContext *gb,
             return AVERROR_INVALIDDATA;
 
         provider_oriented_code = bytestream2_get_byteu(gb);
+#if CONFIG_FILM_GRAIN
         if (provider_oriented_code == aom_grain_provider_oriented_code) {
             return ff_aom_parse_film_grain_sets(&h->aom_film_grain,
                                                 gb->buffer,
@@ -478,12 +479,14 @@ int ff_h2645_sei_message_decode(H2645SEI *h, enum SEIType type,
         return decode_unregistered_user_data(&h->unregistered, gbyte, codec_id);
     case SEI_TYPE_DISPLAY_ORIENTATION:
         return decode_display_orientation(&h->display_orientation, gb);
+#if CONFIG_FILM_GRAIN
     case SEI_TYPE_FILM_GRAIN_CHARACTERISTICS:
         av_refstruct_unref(&h->film_grain_characteristics);
         h->film_grain_characteristics = av_refstruct_allocz(sizeof(*h->film_grain_characteristics));
         if (!h->film_grain_characteristics)
             return AVERROR(ENOMEM);
         return decode_film_grain_characteristics(h->film_grain_characteristics, codec_id, gb);
+#endif // CONFIG_FILM_GRAIN
     case SEI_TYPE_FRAME_PACKING_ARRANGEMENT:
         return decode_frame_packing_arrangement(&h->frame_packing, gb, codec_id);
     case SEI_TYPE_ALTERNATIVE_TRANSFER_CHARACTERISTICS:
@@ -818,6 +821,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
             return ret;
     }
 
+#if CONFIG_FILM_GRAIN
     if (sei->film_grain_characteristics && sei->film_grain_characteristics->present) {
         H2645SEIFilmGrainCharacteristics *fgc = sei->film_grain_characteristics;
         AVFilmGrainParams *fgp = av_film_grain_params_create_side_data(frame);
@@ -888,6 +892,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     if (ret < 0)
         return ret;
 #endif
+#endif // CONFIG_FILM_GRAIN
 
     return 0;
 }
@@ -914,6 +919,9 @@ void ff_h2645_sei_reset(H2645SEI *s)
     s->mastering_display.present = 0;
     s->content_light.present = 0;
 
+#if CONFIG_FILM_GRAIN
     av_refstruct_unref(&s->film_grain_characteristics);
     ff_aom_uninit_film_grain_params(&s->aom_film_grain);
+#endif // CONFIG_FILM_GRAIN
+
 }
