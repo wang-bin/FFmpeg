@@ -138,6 +138,8 @@ Component options:
   --disable-dwt            disable DWT code
   --disable-error-resilience disable error resilience code
   --disable-film-grain     disable film grain code
+  --disable-hevc-sei       disable hevc sei, including film grain, hdr10+, hdr vivid etc.
+  --disable-h264-sei       disable h264 sei
   --disable-dovi-rpudec    disable dolby vision rpu
   --disable-lsp            disable LSP code
   --disable-faan           disable floating point AAN (I)DCT code
@@ -2113,6 +2115,8 @@ SUBSYSTEM_LIST="
     faan
     fast_unaligned
     film_grain
+    h264_sei
+    hevc_sei
     iamf
     lsp
     pixelutils
@@ -3029,13 +3033,13 @@ h263_encoder_select="h263dsp mpegvideoenc"
 h263i_decoder_select="h263_decoder"
 h263p_decoder_select="h263_decoder"
 h263p_encoder_select="h263_encoder"
-h264_decoder_select="cabac golomb h264chroma h264dsp h264parse h264pred h264qpel h264_sei videodsp"
-h264_decoder_suggest="error_resilience film_grain"
+h264_decoder_select="cabac golomb h264chroma h264dsp h264parse h264pred h264qpel videodsp"
+h264_decoder_suggest="error_resilience film_grain h264_sei"
 hap_decoder_select="snappy texturedsp"
 hap_encoder_deps="libsnappy"
 hap_encoder_select="texturedspenc"
-hevc_decoder_select="bswapdsp cabac golomb hevcparse hevc_sei videodsp"
-hevc_decoder_suggest="film_grain dovi_rpudec"
+hevc_decoder_select="bswapdsp cabac golomb hevcparse videodsp"
+hevc_decoder_suggest="film_grain dovi_rpudec hevc_sei"
 huffyuv_decoder_select="bswapdsp huffyuvdsp llviddsp"
 huffyuv_encoder_select="bswapdsp huffman huffyuvencdsp llvidencdsp"
 hymt_decoder_select="huffyuv_decoder"
@@ -3542,8 +3546,10 @@ av1_parser_select="cbs_av1"
 evc_parser_select="evcparse"
 ffv1_parser_select="rangecoder"
 ftr_parser_select="adts_header mpeg4audio"
-h264_parser_select="golomb h264dsp h264parse h264_sei"
-hevc_parser_select="hevcparse hevc_sei"
+h264_parser_select="golomb h264dsp h264parse"
+h264_parser_suggest="h264_sei"
+hevc_parser_select="hevcparse"
+hevc_parser_suggest="hevc_sei"
 mpegaudio_parser_select="mpegaudioheader"
 mpeg4video_parser_select="h263dsp mpegvideodec qpeldsp"
 vc1_parser_select="vc1dsp"

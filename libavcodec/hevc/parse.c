@@ -56,12 +56,14 @@ static int hevc_decode_nal_units(const uint8_t *buf, int buf_size, HEVCParamSets
             if (ret < 0)
                 goto done;
             break;
+#if CONFIG_HEVC_SEI
         case HEVC_NAL_SEI_PREFIX:
         case HEVC_NAL_SEI_SUFFIX:
             ret = ff_hevc_decode_nal_sei(&nal->gb, logctx, sei, ps, nal->type);
             if (ret < 0)
                 goto done;
             break;
+#endif //CONFIG_HEVC_SEI
         default:
             av_log(logctx, AV_LOG_VERBOSE, "Ignoring NAL type %d in extradata\n", nal->type);
             break;

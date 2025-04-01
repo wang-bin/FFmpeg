@@ -444,7 +444,9 @@ int ff_h264_update_thread_context(AVCodecContext *dst,
 
     h->frame_recovered       = h1->frame_recovered;
 
+#if CONFIG_H264_SEI
     ret = ff_h2645_sei_ctx_replace(&h->sei.common, &h1->sei.common);
+#endif //CONFIG_H264_SEI
     if (ret < 0)
         return ret;
 
@@ -1181,6 +1183,7 @@ static int h264_export_frame_props(H264Context *h)
     /* Signal interlacing information externally. */
     /* Prioritize picture timing SEI information over used
      * decoding process if it exists. */
+#if CONFIG_H264_SEI
     if (h->sei.picture_timing.present) {
         int ret = ff_h264_sei_process_picture_timing(&h->sei.picture_timing, sps,
                                                      h->avctx);
@@ -1287,6 +1290,7 @@ static int h264_export_frame_props(H264Context *h)
         }
         h->sei.picture_timing.timecode_cnt = 0;
     }
+#endif //CONFIG_H264_SEI
 
     return 0;
 }
