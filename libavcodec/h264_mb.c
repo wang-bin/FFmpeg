@@ -255,6 +255,7 @@ static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext 
         return;
 
     if (chroma_idc == 3 /* yuv444 */) {
+#if H264_MAX_CHROMA_IDC > 2
         src_cb = pic->data[1] + offset;
         if (emu) {
             h->vdsp.emulated_edge_mc(sl->edge_emu_buffer,
@@ -282,6 +283,7 @@ static av_always_inline void mc_dir_part(const H264Context *h, H264SliceContext 
         qpix_op[luma_xy](dest_cr, src_cr, sl->mb_linesize); // FIXME try variable height perhaps?
         if (!square)
             qpix_op[luma_xy](dest_cr + delta, src_cr + delta, sl->mb_linesize);
+#endif // H264_MAX_CHROMA_IDC > 2
         return;
     }
 
@@ -569,6 +571,7 @@ static av_always_inline void xchg_mb_border(const H264Context *h, H264SliceConte
         }
         if (simple || !CONFIG_GRAY || !(h->flags & AV_CODEC_FLAG_GRAY)) {
             if (chroma444) {
+#if H264_MAX_CHROMA_IDC > 2
                 if (deblock_topleft) {
                     XCHG(top_border_m1 + (24 << pixel_shift), src_cb - (7 << pixel_shift), 1);
                     XCHG(top_border_m1 + (40 << pixel_shift), src_cr - (7 << pixel_shift), 1);
@@ -581,6 +584,7 @@ static av_always_inline void xchg_mb_border(const H264Context *h, H264SliceConte
                     XCHG(sl->top_borders[top_idx][sl->mb_x + 1] + (16 << pixel_shift), src_cb + (17 << pixel_shift), 1);
                     XCHG(sl->top_borders[top_idx][sl->mb_x + 1] + (32 << pixel_shift), src_cr + (17 << pixel_shift), 1);
                 }
+#endif // H264_MAX_CHROMA_IDC > 2
             } else {
                 if (deblock_topleft) {
                     XCHG(top_border_m1 + (16 << pixel_shift), src_cb - (7 << pixel_shift), 1);
@@ -789,9 +793,11 @@ static av_always_inline void hl_decode_mb_idct_luma(const H264Context *h, H264Sl
 #define SIMPLE 1
 #include "h264_mb_template.c"
 
+#if H264_MAX_BIT_DEPTH > 8
 #undef  BITS
 #define BITS   16
 #include "h264_mb_template.c"
+#endif
 
 #undef  SIMPLE
 #define SIMPLE 0
@@ -805,14 +811,18 @@ void ff_h264_hl_decode_mb(const H264Context *h, H264SliceContext *sl)
                         IS_INTRA_PCM(mb_type) || sl->qscale == 0;
 
     if (CHROMA444(h)) {
+#if H264_MAX_CHROMA_IDC > 2
         if (is_complex || h->pixel_shift)
             hl_decode_mb_444_complex(h, sl);
         else
             hl_decode_mb_444_simple_8(h, sl);
+#endif // H264_MAX_CHROMA_IDC > 2
     } else if (is_complex) {
         hl_decode_mb_complex(h, sl);
     } else if (h->pixel_shift) {
+#if H264_MAX_BIT_DEPTH > 8
         hl_decode_mb_simple_16(h, sl);
+#endif
     } else
         hl_decode_mb_simple_8(h, sl);
 }

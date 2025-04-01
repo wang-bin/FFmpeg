@@ -34,9 +34,11 @@
 #define CHROMA_IDC 1
 #include "h264_mc_template.c"
 
+#if H264_MAX_CHROMA_IDC > 1
 #undef  CHROMA_IDC
 #define CHROMA_IDC 2
 #include "h264_mc_template.c"
+#endif // H264_MAX_CHROMA_IDC > 1
 
 static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContext *sl)
 {
@@ -169,6 +171,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                                uvlinesize, 0, 0, SIMPLE, PIXEL_SHIFT);
         } else {
             if (chroma422) {
+#if CHROMA_IDC > 1
                 FUNC(hl_motion_422)(h, sl, dest_y, dest_cb, dest_cr,
                               h->h264qpel.put_h264_qpel_pixels_tab,
                               h->h264chroma.put_h264_chroma_pixels_tab,
@@ -176,6 +179,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
                               h->h264chroma.avg_h264_chroma_pixels_tab,
                               h->h264dsp.weight_h264_pixels_tab,
                               h->h264dsp.biweight_h264_pixels_tab);
+#endif // CHROMA_IDC > 1
             } else {
                 FUNC(hl_motion_420)(h, sl, dest_y, dest_cb, dest_cr,
                               h->h264qpel.put_h264_qpel_pixels_tab,
@@ -249,6 +253,7 @@ static av_noinline void FUNC(hl_decode_mb)(const H264Context *h, H264SliceContex
 
 #if !SIMPLE || BITS == 8
 
+#if H264_MAX_CHROMA_IDC > 2
 #undef  CHROMA_IDC
 #define CHROMA_IDC 3
 #include "h264_mc_template.c"
@@ -351,5 +356,6 @@ static av_noinline void FUNC(hl_decode_mb_444)(const H264Context *h, H264SliceCo
                                    dest[p], p);
     }
 }
+#endif // H264_MAX_CHROMA_IDC > 2
 
 #endif

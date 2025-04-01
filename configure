@@ -444,6 +444,7 @@ Advanced options (experts only):
                            (faster, but may crash)
   --sws-max-filter-size=N  the max filter size swscale uses [$sws_max_filter_size_default]
   --h264-max-bit-depth=N   the max h264 decoding bit depth [$h264_max_bit_depth_default]
+  --h264-max-chroma-idc=N  the max h264 chroma idc [$h264_max_chroma_idc_default]
   --h265-bit-depths=N1,N2  the h265 decoding bit depths [$h265_bit_depths_default]
 
 Optimization options (experts only):
@@ -2707,6 +2708,7 @@ CMDLINE_SET="
     extra_version
     gas
     h264_max_bit_depth
+    h264_max_chroma_idc
     h265_bit_depths
     host_cc
     host_cflags
@@ -4170,6 +4172,9 @@ set_default sws_max_filter_size
 
 h264_max_bit_depth_default=10
 set_default h264_max_bit_depth
+
+h264_max_chroma_idc_default=3
+set_default h264_max_chroma_idc
 
 h265_bit_depths_default=8,10,12
 set_default h265_bit_depths
@@ -8256,6 +8261,7 @@ cat > $TMPH <<EOF
 #define SLIBSUF "$SLIBSUF"
 #define SWS_MAX_FILTER_SIZE $sws_max_filter_size
 #define H264_MAX_BIT_DEPTH $h264_max_bit_depth
+#define H264_MAX_CHROMA_IDC $h264_max_chroma_idc
 EOF
 
 for i in $(echo $h265_bit_depths |sed 's/\,/ /g'); do

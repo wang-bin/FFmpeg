@@ -290,6 +290,7 @@ static av_always_inline void h264_filter_mb_fast_internal(const H264Context *h,
         }
         if(chroma){
             if(chroma444){
+#if H264_MAX_CHROMA_IDC > 2
                 if(left_type){
                     filter_mb_edgev( &img_cb[4*0<<pixel_shift], linesize, bS4, qpc0, a, b, h, 1);
                     filter_mb_edgev( &img_cr[4*0<<pixel_shift], linesize, bS4, qpc0, a, b, h, 1);
@@ -321,7 +322,9 @@ static av_always_inline void h264_filter_mb_fast_internal(const H264Context *h,
                     filter_mb_edgeh( &img_cb[4*3*linesize], linesize, bS3, qpc, a, b, h, 0);
                     filter_mb_edgeh( &img_cr[4*3*linesize], linesize, bS3, qpc, a, b, h, 0);
                 }
+#endif // H264_MAX_CHROMA_IDC > 2
             }else if(chroma422){
+#if H264_MAX_CHROMA_IDC > 1
                 if(left_type){
                     filter_mb_edgecv(&img_cb[2*0<<pixel_shift], uvlinesize, bS4, qpc0, a, b, h, 1);
                     filter_mb_edgecv(&img_cr[2*0<<pixel_shift], uvlinesize, bS4, qpc0, a, b, h, 1);
@@ -338,6 +341,7 @@ static av_always_inline void h264_filter_mb_fast_internal(const H264Context *h,
                 filter_mb_edgech(&img_cr[4*2*uvlinesize], uvlinesize, bS3, qpc, a, b, h, 0);
                 filter_mb_edgech(&img_cb[4*3*uvlinesize], uvlinesize, bS3, qpc, a, b, h, 0);
                 filter_mb_edgech(&img_cr[4*3*uvlinesize], uvlinesize, bS3, qpc, a, b, h, 0);
+#endif // H264_MAX_CHROMA_IDC > 1
             }else{
                 if(left_type){
                     filter_mb_edgecv( &img_cb[2*0<<pixel_shift], uvlinesize, bS4, qpc0, a, b, h, 1);
@@ -532,8 +536,10 @@ static av_always_inline void filter_mb_dir(const H264Context *h, H264SliceContex
                 chroma_qp_avg[1] = (sl->chroma_qp[1] + get_chroma_qp(h->ps.pps, 1, h->cur_pic.qscale_table[mbn_xy]) + 1) >> 1;
                 if (chroma) {
                     if (chroma444) {
+#if H264_MAX_CHROMA_IDC > 2
                         filter_mb_edgeh (&img_cb[j*uvlinesize], tmp_uvlinesize, bS, chroma_qp_avg[0], a, b, h, 0);
                         filter_mb_edgeh (&img_cr[j*uvlinesize], tmp_uvlinesize, bS, chroma_qp_avg[1], a, b, h, 0);
+#endif // H264_MAX_CHROMA_IDC > 2
                     } else {
                         filter_mb_edgech(&img_cb[j*uvlinesize], tmp_uvlinesize, bS, chroma_qp_avg[0], a, b, h, 0);
                         filter_mb_edgech(&img_cr[j*uvlinesize], tmp_uvlinesize, bS, chroma_qp_avg[1], a, b, h, 0);
@@ -599,8 +605,10 @@ static av_always_inline void filter_mb_dir(const H264Context *h, H264SliceContex
                     filter_mb_edgev( &img_y[0], linesize, bS, qp, a, b, h, 1 );
                     if (chroma) {
                         if (chroma444) {
+#if H264_MAX_CHROMA_IDC > 2
                             filter_mb_edgev ( &img_cb[0], uvlinesize, bS, chroma_qp_avg[0], a, b, h, 1);
                             filter_mb_edgev ( &img_cr[0], uvlinesize, bS, chroma_qp_avg[1], a, b, h, 1);
+#endif // H264_MAX_CHROMA_IDC > 2
                         } else {
                             filter_mb_edgecv( &img_cb[0], uvlinesize, bS, chroma_qp_avg[0], a, b, h, 1);
                             filter_mb_edgecv( &img_cr[0], uvlinesize, bS, chroma_qp_avg[1], a, b, h, 1);
@@ -610,8 +618,10 @@ static av_always_inline void filter_mb_dir(const H264Context *h, H264SliceContex
                     filter_mb_edgeh( &img_y[0], linesize, bS, qp, a, b, h, 1 );
                     if (chroma) {
                         if (chroma444) {
+#if H264_MAX_CHROMA_IDC > 2
                             filter_mb_edgeh ( &img_cb[0], uvlinesize, bS, chroma_qp_avg[0], a, b, h, 1);
                             filter_mb_edgeh ( &img_cr[0], uvlinesize, bS, chroma_qp_avg[1], a, b, h, 1);
+#endif // H264_MAX_CHROMA_IDC > 2
                         } else {
                             filter_mb_edgech( &img_cb[0], uvlinesize, bS, chroma_qp_avg[0], a, b, h, 1);
                             filter_mb_edgech( &img_cr[0], uvlinesize, bS, chroma_qp_avg[1], a, b, h, 1);
@@ -682,8 +692,10 @@ static av_always_inline void filter_mb_dir(const H264Context *h, H264SliceContex
             filter_mb_edgev( &img_y[4*edge << h->pixel_shift], linesize, bS, qp, a, b, h, 0 );
             if (chroma) {
                 if (chroma444) {
+#if H264_MAX_CHROMA_IDC > 2
                     filter_mb_edgev ( &img_cb[4*edge << h->pixel_shift], uvlinesize, bS, sl->chroma_qp[0], a, b, h, 0);
                     filter_mb_edgev ( &img_cr[4*edge << h->pixel_shift], uvlinesize, bS, sl->chroma_qp[1], a, b, h, 0);
+#endif // H264_MAX_CHROMA_IDC > 2
                 } else if( (edge&1) == 0 ) {
                     filter_mb_edgecv( &img_cb[2*edge << h->pixel_shift], uvlinesize, bS, sl->chroma_qp[0], a, b, h, 0);
                     filter_mb_edgecv( &img_cr[2*edge << h->pixel_shift], uvlinesize, bS, sl->chroma_qp[1], a, b, h, 0);
@@ -691,18 +703,22 @@ static av_always_inline void filter_mb_dir(const H264Context *h, H264SliceContex
             }
         } else {
             if (chroma422) {
+#if H264_MAX_CHROMA_IDC > 1
                 if (deblock_edge)
                     filter_mb_edgeh(&img_y[4*edge*linesize], linesize, bS, qp, a, b, h, 0);
                 if (chroma) {
                     filter_mb_edgech(&img_cb[4*edge*uvlinesize], uvlinesize, bS, sl->chroma_qp[0], a, b, h, 0);
                     filter_mb_edgech(&img_cr[4*edge*uvlinesize], uvlinesize, bS, sl->chroma_qp[1], a, b, h, 0);
                 }
+#endif // H264_MAX_CHROMA_IDC > 1
             } else {
                 filter_mb_edgeh(&img_y[4*edge*linesize], linesize, bS, qp, a, b, h, 0);
                 if (chroma) {
                     if (chroma444) {
+#if H264_MAX_CHROMA_IDC > 2
                         filter_mb_edgeh (&img_cb[4*edge*uvlinesize], uvlinesize, bS, sl->chroma_qp[0], a, b, h, 0);
                         filter_mb_edgeh (&img_cr[4*edge*uvlinesize], uvlinesize, bS, sl->chroma_qp[1], a, b, h, 0);
+#endif // H264_MAX_CHROMA_IDC > 2
                     } else if ((edge&1) == 0) {
                         filter_mb_edgech(&img_cb[2*edge*uvlinesize], uvlinesize, bS, sl->chroma_qp[0], a, b, h, 0);
                         filter_mb_edgech(&img_cr[2*edge*uvlinesize], uvlinesize, bS, sl->chroma_qp[1], a, b, h, 0);
@@ -796,15 +812,19 @@ void ff_h264_filter_mb(const H264Context *h, H264SliceContext *sl,
             filter_mb_mbaff_edgev ( h, img_y  + 8*  linesize,   linesize, bS+4, 1, qp [1], a, b, 1 );
             if (chroma){
                 if (CHROMA444(h)) {
+#if H264_MAX_CHROMA_IDC > 2
                     filter_mb_mbaff_edgev ( h, img_cb,                uvlinesize, bS  , 1, bqp[0], a, b, 1 );
                     filter_mb_mbaff_edgev ( h, img_cb + 8*uvlinesize, uvlinesize, bS+4, 1, bqp[1], a, b, 1 );
                     filter_mb_mbaff_edgev ( h, img_cr,                uvlinesize, bS  , 1, rqp[0], a, b, 1 );
                     filter_mb_mbaff_edgev ( h, img_cr + 8*uvlinesize, uvlinesize, bS+4, 1, rqp[1], a, b, 1 );
+#endif // H264_MAX_CHROMA_IDC > 2
                 } else if (CHROMA422(h)) {
+#if H264_MAX_CHROMA_IDC > 1
                     filter_mb_mbaff_edgecv(h, img_cb,                uvlinesize, bS  , 1, bqp[0], a, b, 1);
                     filter_mb_mbaff_edgecv(h, img_cb + 8*uvlinesize, uvlinesize, bS+4, 1, bqp[1], a, b, 1);
                     filter_mb_mbaff_edgecv(h, img_cr,                uvlinesize, bS  , 1, rqp[0], a, b, 1);
                     filter_mb_mbaff_edgecv(h, img_cr + 8*uvlinesize, uvlinesize, bS+4, 1, rqp[1], a, b, 1);
+#endif // H264_MAX_CHROMA_IDC > 1
                 }else{
                     filter_mb_mbaff_edgecv( h, img_cb,                uvlinesize, bS  , 1, bqp[0], a, b, 1 );
                     filter_mb_mbaff_edgecv( h, img_cb + 4*uvlinesize, uvlinesize, bS+4, 1, bqp[1], a, b, 1 );
@@ -817,10 +837,12 @@ void ff_h264_filter_mb(const H264Context *h, H264SliceContext *sl,
             filter_mb_mbaff_edgev ( h, img_y  +   linesize, 2*  linesize, bS+1, 2, qp [1], a, b, 1 );
             if (chroma){
                 if (CHROMA444(h)) {
+#if H264_MAX_CHROMA_IDC > 2
                     filter_mb_mbaff_edgev ( h, img_cb,              2*uvlinesize, bS  , 2, bqp[0], a, b, 1 );
                     filter_mb_mbaff_edgev ( h, img_cb + uvlinesize, 2*uvlinesize, bS+1, 2, bqp[1], a, b, 1 );
                     filter_mb_mbaff_edgev ( h, img_cr,              2*uvlinesize, bS  , 2, rqp[0], a, b, 1 );
                     filter_mb_mbaff_edgev ( h, img_cr + uvlinesize, 2*uvlinesize, bS+1, 2, rqp[1], a, b, 1 );
+#endif // H264_MAX_CHROMA_IDC > 2
                 }else{
                     filter_mb_mbaff_edgecv( h, img_cb,              2*uvlinesize, bS  , 2, bqp[0], a, b, 1 );
                     filter_mb_mbaff_edgecv( h, img_cb + uvlinesize, 2*uvlinesize, bS+1, 2, bqp[1], a, b, 1 );
