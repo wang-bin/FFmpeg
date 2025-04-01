@@ -9326,10 +9326,10 @@ fail:
 }
 
 static const MOVParseTableEntry mov_default_parse_table[] = {
-{ MKTAG('A','C','L','R'), mov_read_aclr },
-{ MKTAG('A','P','R','G'), mov_read_avid },
-{ MKTAG('A','A','L','P'), mov_read_avid },
-{ MKTAG('A','R','E','S'), mov_read_ares },
+//{ MKTAG('A','C','L','R'), mov_read_aclr },
+//{ MKTAG('A','P','R','G'), mov_read_avid },
+//{ MKTAG('A','A','L','P'), mov_read_avid },
+//{ MKTAG('A','R','E','S'), mov_read_ares },
 { MKTAG('a','v','s','s'), mov_read_avss },
 { MKTAG('a','v','1','C'), mov_read_glbl },
 { MKTAG('c','h','p','l'), mov_read_chpl },
@@ -9343,7 +9343,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('e','l','s','t'), mov_read_elst },
 { MKTAG('e','n','d','a'), mov_read_enda },
 { MKTAG('f','i','e','l'), mov_read_fiel },
-{ MKTAG('a','d','r','m'), mov_read_adrm },
+//{ MKTAG('a','d','r','m'), mov_read_adrm }, // disable sha
 { MKTAG('f','t','y','p'), mov_read_ftyp },
 { MKTAG('g','l','b','l'), mov_read_glbl },
 { MKTAG('h','d','l','r'), mov_read_hdlr },
@@ -9358,12 +9358,12 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('m','o','o','v'), mov_read_moov },
 { MKTAG('m','v','e','x'), mov_read_default },
 { MKTAG('m','v','h','d'), mov_read_mvhd },
-{ MKTAG('S','M','I',' '), mov_read_svq3 },
-{ MKTAG('a','l','a','c'), mov_read_alac }, /* alac specific atom */
+//{ MKTAG('S','M','I',' '), mov_read_svq3 },
+//{ MKTAG('a','l','a','c'), mov_read_alac }, /* alac specific atom */
 { MKTAG('a','v','c','C'), mov_read_glbl },
 { MKTAG('p','a','s','p'), mov_read_pasp },
-{ MKTAG('c','l','a','p'), mov_read_clap },
-{ MKTAG('s','b','a','s'), mov_read_sbas },
+//{ MKTAG('c','l','a','p'), mov_read_clap },
+//{ MKTAG('s','b','a','s'), mov_read_sbas },
 { MKTAG('s','i','d','x'), mov_read_sidx },
 { MKTAG('s','t','b','l'), mov_read_default },
 { MKTAG('s','t','c','o'), mov_read_stco },
@@ -9388,17 +9388,17 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('t','r','u','n'), mov_read_trun },
 { MKTAG('u','d','t','a'), mov_read_default },
 { MKTAG('w','a','v','e'), mov_read_wave },
-{ MKTAG('e','s','d','s'), mov_read_esds },
-{ MKTAG('d','a','c','3'), mov_read_dac3 }, /* AC-3 info */
-{ MKTAG('d','e','c','3'), mov_read_dec3 }, /* EAC-3 info */
-{ MKTAG('d','d','t','s'), mov_read_ddts }, /* DTS audio descriptor */
+//{ MKTAG('e','s','d','s'), mov_read_esds },
+//{ MKTAG('d','a','c','3'), mov_read_dac3 }, /* AC-3 info */
+//{ MKTAG('d','e','c','3'), mov_read_dec3 }, /* EAC-3 info */
+//{ MKTAG('d','d','t','s'), mov_read_ddts }, /* DTS audio descriptor */
 { MKTAG('w','i','d','e'), mov_read_wide }, /* place holder */
-{ MKTAG('w','f','e','x'), mov_read_wfex },
+//{ MKTAG('w','f','e','x'), mov_read_wfex },
 { MKTAG('c','m','o','v'), mov_read_cmov },
-{ MKTAG('c','h','a','n'), mov_read_chan }, /* channel layout from quicktime */
-{ MKTAG('c','h','n','l'), mov_read_chnl }, /* channel layout from ISO-14496-12 */
+//{ MKTAG('c','h','a','n'), mov_read_chan }, /* channel layout from quicktime */
+//{ MKTAG('c','h','n','l'), mov_read_chnl }, /* channel layout from ISO-14496-12 */
 { MKTAG('d','v','c','1'), mov_read_dvc1 },
-{ MKTAG('s','g','p','d'), mov_read_sgpd },
+//{ MKTAG('s','g','p','d'), mov_read_sgpd },
 { MKTAG('s','b','g','p'), mov_read_sbgp },
 { MKTAG('h','v','c','C'), mov_read_glbl },
 { MKTAG('v','v','c','C'), mov_read_glbl },
@@ -9415,6 +9415,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('s','c','h','m'), mov_read_schm },
 { MKTAG('s','c','h','i'), mov_read_default },
 { MKTAG('t','e','n','c'), mov_read_tenc },
+#if 0
 { MKTAG('d','f','L','a'), mov_read_dfla },
 { MKTAG('s','t','3','d'), mov_read_st3d }, /* stereoscopic 3D video box */
 { MKTAG('s','v','3','d'), mov_read_sv3d }, /* spherical video box */
@@ -9422,14 +9423,16 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('h','f','o','v'), mov_read_hfov },
 { MKTAG('d','O','p','s'), mov_read_dops },
 { MKTAG('d','m','l','p'), mov_read_dmlp },
+#endif
 { MKTAG('S','m','D','m'), mov_read_smdm },
 { MKTAG('C','o','L','L'), mov_read_coll },
-{ MKTAG('v','p','c','C'), mov_read_vpcc },
+//{ MKTAG('v','p','c','C'), mov_read_vpcc },
 { MKTAG('m','d','c','v'), mov_read_mdcv },
 { MKTAG('c','l','l','i'), mov_read_clli },
 { MKTAG('d','v','c','C'), mov_read_dvcc_dvvc },
 { MKTAG('d','v','v','C'), mov_read_dvcc_dvvc },
 { MKTAG('d','v','w','C'), mov_read_dvcc_dvvc },
+#if 0
 { MKTAG('k','i','n','d'), mov_read_kind },
 { MKTAG('S','A','3','D'), mov_read_SA3D }, /* ambisonic audio box */
 { MKTAG('S','A','N','D'), mov_read_SAND }, /* non diegetic audio box */
@@ -9448,6 +9451,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('l','h','v','C'), mov_read_lhvc },
 { MKTAG('l','v','c','C'), mov_read_glbl },
 { MKTAG('a','p','v','C'), mov_read_glbl },
+#endif
 #if CONFIG_IAMFDEC
 { MKTAG('i','a','c','b'), mov_read_iacb },
 #endif
@@ -10628,11 +10632,13 @@ static int mov_read_header(AVFormatContext *s)
     }
     av_log(mov->fc, AV_LOG_TRACE, "on_parse_exit_offset=%"PRId64"\n", avio_tell(pb));
 
+#if 0
     if (mov->found_iloc && mov->found_iinf) {
         err = mov_parse_heif_items(s);
         if (err < 0)
             return err;
     }
+#endif
     // prevent iloc and iinf boxes from being parsed while reading packets.
     // this is needed because an iinf box may have been parsed but ignored
     // for having old infe boxes which create no streams.
