@@ -682,9 +682,11 @@ int av_frame_make_writable(AVFrame *frame)
         return ret;
     }
 
+#ifndef __wasm__
     if (frame->hw_frames_ctx)
         ret = av_hwframe_get_buffer(frame->hw_frames_ctx, &tmp, 0);
     else
+#endif// __wasm__
         ret = av_frame_get_buffer(&tmp, 0);
     if (ret < 0)
         return ret;
@@ -965,8 +967,10 @@ static int frame_copy_video(AVFrame *dst, const AVFrame *src)
         dst->height < src->height)
         return AVERROR(EINVAL);
 
+#ifndef __wasm__
     if (src->hw_frames_ctx || dst->hw_frames_ctx)
         return av_hwframe_transfer_data(dst, src, 0);
+#endif// __wasm__
 
     planes = av_pix_fmt_count_planes(dst->format);
     for (int i = 0; i < planes; i++)

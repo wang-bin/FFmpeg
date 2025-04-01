@@ -33,6 +33,7 @@
 
 static const AVCodecDescriptor codec_descriptors[] = {
     /* video codecs */
+#ifndef __wasm__
     {
         .id        = AV_CODEC_ID_MPEG1VIDEO,
         .type      = AVMEDIA_TYPE_VIDEO,
@@ -226,6 +227,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("Creative YUV (CYUV)"),
         .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
     },
+#endif // __wasm__
     {
         .id        = AV_CODEC_ID_H264,
         .type      = AVMEDIA_TYPE_VIDEO,
@@ -235,6 +237,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
                      AV_CODEC_PROP_REORDER | AV_CODEC_PROP_FIELDS,
         .profiles  = NULL_IF_CONFIG_SMALL(ff_h264_profiles),
     },
+#ifndef __wasm__
     {
         .id        = AV_CODEC_ID_INDEO3,
         .type      = AVMEDIA_TYPE_VIDEO,
@@ -1270,6 +1273,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("HNM 4 video"),
         .props     = AV_CODEC_PROP_LOSSY,
     },
+#endif// __wasm__
     {
         .id        = AV_CODEC_ID_HEVC,
         .type      = AVMEDIA_TYPE_VIDEO,
@@ -1278,6 +1282,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_LOSSY | AV_CODEC_PROP_REORDER,
         .profiles  = NULL_IF_CONFIG_SMALL(ff_hevc_profiles),
     },
+#ifndef __wasm__
     {
         .id        = AV_CODEC_ID_FIC,
         .type      = AVMEDIA_TYPE_VIDEO,
@@ -2003,6 +2008,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("PCM unsigned 8-bit"),
         .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSLESS,
     },
+#endif// __wasm__
     {
         .id        = AV_CODEC_ID_PCM_MULAW,
         .type      = AVMEDIA_TYPE_AUDIO,
@@ -2017,6 +2023,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("PCM A-law / G.711 A-law"),
         .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
     },
+#ifndef __wasm__
     {
         .id        = AV_CODEC_ID_PCM_S32LE,
         .type      = AVMEDIA_TYPE_AUDIO,
@@ -2692,6 +2699,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("MP3 (MPEG audio layer 3)"),
         .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
     },
+#endif// __wasm__
     {
         .id        = AV_CODEC_ID_AAC,
         .type      = AVMEDIA_TYPE_AUDIO,
@@ -2700,6 +2708,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_LOSSY,
         .profiles  = NULL_IF_CONFIG_SMALL(ff_aac_profiles),
     },
+#ifndef __wasm__
     {
         .id        = AV_CODEC_ID_AC3,
         .type      = AVMEDIA_TYPE_AUDIO,
@@ -3709,6 +3718,7 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("raw MPEG-TS stream"),
         .mime_types= MT("application/MP2T"),
     },
+#endif// __wasm__
     {
         .id        = AV_CODEC_ID_WRAPPED_AVFRAME,
         .type      = AVMEDIA_TYPE_VIDEO,

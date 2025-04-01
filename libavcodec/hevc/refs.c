@@ -93,6 +93,7 @@ static HEVCFrame *alloc_frame(HEVCContext *s, HEVCLayerContext *l)
         if (ret < 0)
             return NULL;
 
+#ifndef __wasm__
         // Add LCEVC SEI metadata here, as it's needed in get_buffer()
         if (s->sei.common.lcevc.info) {
             HEVCSEILCEVC *lcevc = &s->sei.common.lcevc;
@@ -129,6 +130,7 @@ static HEVCFrame *alloc_frame(HEVCContext *s, HEVCLayerContext *l)
                     stereo_3d->view = AV_STEREO3D_VIEW_UNSPEC;
             }
         }
+#endif// __wasm__
 
         ret = ff_progress_frame_get_buffer(s->avctx, &frame->tf,
                                            AV_GET_BUFFER_FLAG_REF);

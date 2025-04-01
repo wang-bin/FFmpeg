@@ -365,16 +365,20 @@ static const struct {
     int (*extract)(AVBSFContext *ctx, AVPacket *pkt,
                    uint8_t **data, int *size);
 } extract_tab[] = {
+#ifndef __wasm__
     { AV_CODEC_ID_AV1,        extract_extradata_av1     },
     { AV_CODEC_ID_AVS2,       extract_extradata_mpeg4   },
     { AV_CODEC_ID_AVS3,       extract_extradata_mpeg4   },
     { AV_CODEC_ID_CAVS,       extract_extradata_mpeg4   },
+#endif
     { AV_CODEC_ID_H264,       extract_extradata_h2645   },
     { AV_CODEC_ID_HEVC,       extract_extradata_h2645   },
+#ifndef __wasm__
     { AV_CODEC_ID_MPEG1VIDEO, extract_extradata_mpeg12  },
     { AV_CODEC_ID_MPEG2VIDEO, extract_extradata_mpeg12  },
     { AV_CODEC_ID_MPEG4,      extract_extradata_mpeg4   },
     { AV_CODEC_ID_VC1,        extract_extradata_vc1     },
+#endif
     { AV_CODEC_ID_VVC,        extract_extradata_h2645   },
 };
 

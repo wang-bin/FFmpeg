@@ -148,9 +148,11 @@ int av_random_bytes(uint8_t* buf, size_t len)
     return 0;
 #endif
 
+#ifndef __wasm__
     err = read_random(buf, len, "/dev/urandom");
     if (!err)
         return err;
+#endif
 
 #if CONFIG_GCRYPT
     gcry_randomize(buf, len, GCRY_VERY_STRONG_RANDOM);

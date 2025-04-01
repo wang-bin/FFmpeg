@@ -55,6 +55,7 @@ AVFrame *ff_default_get_video_buffer2(AVFilterLink *link, int w, int h, int alig
     int pool_align = 0;
     enum AVPixelFormat pool_format = AV_PIX_FMT_NONE;
 
+#ifndef __wasm__
     if (li->l.hw_frames_ctx &&
         ((AVHWFramesContext*)li->l.hw_frames_ctx->data)->format == link->format) {
         int ret;
@@ -69,6 +70,7 @@ AVFrame *ff_default_get_video_buffer2(AVFilterLink *link, int w, int h, int alig
 
         return frame;
     }
+#endif// __wasm__
 
     if (!li->frame_pool) {
         li->frame_pool = ff_frame_pool_video_init(CONFIG_MEMORY_POISONING

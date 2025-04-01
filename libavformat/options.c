@@ -335,6 +335,7 @@ fail:
     return NULL;
 }
 
+#ifndef __wasm__
 #define FLAGS AV_OPT_FLAG_ENCODING_PARAM | AV_OPT_FLAG_VIDEO_PARAM
 #define OFFSET(x) offsetof(AVStreamGroupTileGrid, x)
 static const AVOption tile_grid_options[] = {
@@ -401,12 +402,14 @@ static const AVClass *stream_group_child_iterate(void **opaque)
     case AV_STREAM_GROUP_PARAMS_NONE:
         i++;
     // fall-through
+#if CONFIG_IAMFDEC
     case AV_STREAM_GROUP_PARAMS_IAMF_AUDIO_ELEMENT:
         ret = av_iamf_audio_element_get_class();
         break;
     case AV_STREAM_GROUP_PARAMS_IAMF_MIX_PRESENTATION:
         ret = av_iamf_mix_presentation_get_class();
         break;
+#endif //CONFIG_IAMFDEC
     case AV_STREAM_GROUP_PARAMS_TILE_GRID:
         ret = &tile_grid_class;
         break;
@@ -465,6 +468,7 @@ AVStreamGroup *avformat_stream_group_create(AVFormatContext *s,
     av_opt_set_defaults(stg);
     stg->type = type;
     switch (type) {
+#if CONFIG_IAMFDEC
     case AV_STREAM_GROUP_PARAMS_IAMF_AUDIO_ELEMENT:
         stg->params.iamf_audio_element = av_iamf_audio_element_alloc();
         if (!stg->params.iamf_audio_element)
@@ -475,6 +479,7 @@ AVStreamGroup *avformat_stream_group_create(AVFormatContext *s,
         if (!stg->params.iamf_mix_presentation)
             goto fail;
         break;
+#endif
     case AV_STREAM_GROUP_PARAMS_TILE_GRID:
         stg->params.tile_grid = av_mallocz(sizeof(*stg->params.tile_grid));
         if (!stg->params.tile_grid)
@@ -536,6 +541,7 @@ int avformat_stream_group_add_stream(AVStreamGroup *stg, AVStream *st)
 
     return stream_group_add_stream(stg, st);
 }
+#endif
 
 static int option_is_disposition(const AVOption *opt)
 {

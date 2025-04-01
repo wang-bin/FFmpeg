@@ -1443,6 +1443,7 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
         decode_vui(gb, avctx, apply_defdispwin, sps);
 
     sps->extension_present = get_bits1(gb);
+#ifndef __wasm__
     if (sps->extension_present) {
         sps->range_extension               = get_bits1(gb);
         sps->multilayer_extension          = get_bits1(gb);
@@ -1531,6 +1532,7 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
             sps->intra_boundary_filtering_disabled      = get_bits1(gb);
         }
     }
+#endif //__wasm__
     if (apply_defdispwin) {
         sps->output_window.left_offset   += sps->vui.def_disp_win.left_offset;
         sps->output_window.right_offset  += sps->vui.def_disp_win.right_offset;
@@ -2320,6 +2322,7 @@ int ff_hevc_decode_nal_pps(GetBitContext *gb, AVCodecContext *avctx,
     pps->slice_header_extension_present_flag = get_bits1(gb);
 
     pps->pps_extension_present_flag = get_bits1(gb);
+#ifndef __wasm__
     if (pps->pps_extension_present_flag) {
         pps->pps_range_extensions_flag     = get_bits1(gb);
         pps->pps_multilayer_extension_flag = get_bits1(gb);
@@ -2347,6 +2350,7 @@ int ff_hevc_decode_nal_pps(GetBitContext *gb, AVCodecContext *avctx,
                 goto err;
         }
     }
+#endif// __wasm__
 
     ret = setup_pps(avctx, gb, pps, sps);
     if (ret < 0)

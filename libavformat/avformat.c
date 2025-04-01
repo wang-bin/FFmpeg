@@ -90,6 +90,7 @@ void ff_free_stream_group(AVStreamGroup **pstg)
     av_freep(&stg->streams);
     av_dict_free(&stg->metadata);
     av_freep(&stg->priv_data);
+#ifndef __wasm__
     switch (stg->type) {
     case AV_STREAM_GROUP_PARAMS_IAMF_AUDIO_ELEMENT: {
         av_iamf_audio_element_free(&stg->params.iamf_audio_element);
@@ -111,6 +112,7 @@ void ff_free_stream_group(AVStreamGroup **pstg)
     default:
         break;
     }
+#endif
 
     av_freep(pstg);
 }

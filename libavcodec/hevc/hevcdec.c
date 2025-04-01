@@ -3281,6 +3281,7 @@ static int hevc_frame_start(HEVCContext *s, HEVCLayerContext *l,
     if (ret < 0)
         goto fail;
 
+#if CONFIG_FILM_GRAIN
     if (s->cur_frame->needs_fg &&
         (s->sei.common.film_grain_characteristics && s->sei.common.film_grain_characteristics->present &&
          !ff_h274_film_grain_params_supported(s->sei.common.film_grain_characteristics->model_id,
@@ -3302,6 +3303,7 @@ static int hevc_frame_start(HEVCContext *s, HEVCLayerContext *l,
         if (ret < 0)
             goto fail;
     }
+#endif
 
     s->cur_frame->f->pict_type = 3 - s->sh.slice_type;
 
