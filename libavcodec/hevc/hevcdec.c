@@ -3018,6 +3018,7 @@ static int set_side_data(HEVCContext *s)
     AVFrame *out = s->cur_frame->f;
     int ret;
 
+#if CONFIG_HEVC_SEI
     // Decrement the mastering display and content light level flag when IRAP
     // frame has no_rasl_output_flag=1 so the side data persists for the entire
     // coded video sequence.
@@ -3074,6 +3075,7 @@ static int set_side_data(HEVCContext *s)
         if (ret < 0)
             return ret;
     }
+#endif // CONFIG_HEVC_SEI
 
 #if CONFIG_DOVI_RPUDEC
     if (s->rpu_buf) {
@@ -3563,12 +3565,14 @@ static int decode_nal_unit(HEVCContext *s, unsigned nal_idx)
         if (ret < 0)
             goto fail;
         break;
+#if CONFIG_HEVC_SEI
     case HEVC_NAL_SEI_PREFIX:
     case HEVC_NAL_SEI_SUFFIX:
         ret = ff_hevc_decode_nal_sei(&gb, s->avctx, &s->sei, &s->ps, s->nal_unit_type);
         if (ret < 0)
             goto fail;
         break;
+#endif //CONFIG_HEVC_SEI
     case HEVC_NAL_TRAIL_R:
     case HEVC_NAL_TRAIL_N:
     case HEVC_NAL_TSA_N:
@@ -3886,7 +3890,9 @@ static av_cold int hevc_decode_free(AVCodecContext *avctx)
 
     ff_h2645_packet_uninit(&s->pkt);
 
+#if CONFIG_HEVC_SEI
     ff_hevc_reset_sei(&s->sei);
+#endif //CONFIG_HEVC_SEI
 
     return 0;
 }
@@ -3928,7 +3934,9 @@ static av_cold int hevc_init_context(AVCodecContext *avctx)
     s->dovi_ctx.logctx = avctx;
     s->eos = 0;
 
+#if CONFIG_HEVC_SEI
     ff_hevc_reset_sei(&s->sei);
+#endif //CONFIG_HEVC_SEI
 
     return 0;
 }
@@ -3998,7 +4006,9 @@ static int hevc_update_thread_context(AVCodecContext *dst,
 
     ff_refstruct_replace(&s->h274db, s0->h274db);
 
+#if CONFIG_HEVC_SEI
     ret = ff_h2645_sei_ctx_replace(&s->sei.common, &s0->sei.common);
+#endif //CONFIG_HEVC_SEI
     if (ret < 0)
         return ret;
 
@@ -4011,7 +4021,9 @@ static int hevc_update_thread_context(AVCodecContext *dst,
     if (ret < 0)
         return ret;
 
+#if CONFIG_DOVI_RPUDEC
     ff_dovi_ctx_replace(&s->dovi_ctx, &s0->dovi_ctx);
+#endif //CONFIG_DOVI_RPUDEC
 
     ret = av_buffer_replace(&s->sei.common.dynamic_hdr_vivid.info,
                             s0->sei.common.dynamic_hdr_vivid.info);
@@ -4052,9 +4064,11 @@ static av_cold int hevc_decode_init(AVCodecContext *avctx)
                 return ret;
             }
 
+#if CONFIG_HEVC_SEI
             ret = ff_h2645_sei_to_context(avctx, &s->sei.common);
             if (ret < 0)
                 return ret;
+#endif //CONFIG_HEVC_SEI
         }
 
         sd = ff_get_coded_side_data(avctx, AV_PKT_DATA_DOVI_CONF);
@@ -4069,7 +4083,9 @@ static void hevc_decode_flush(AVCodecContext *avctx)
 {
     HEVCContext *s = avctx->priv_data;
     ff_hevc_flush_dpb(s);
+#if CONFIG_HEVC_SEI
     ff_hevc_reset_sei(&s->sei);
+#endif //CONFIG_HEVC_SEI
 #if CONFIG_DOVI_RPUDEC
     ff_dovi_ctx_flush(&s->dovi_ctx);
 #endif // CONFIG_DOVI_RPUDEC

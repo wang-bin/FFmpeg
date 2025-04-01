@@ -274,9 +274,11 @@ static inline int parse_nal_units(AVCodecParserContext *s,
     s->key_frame         = 0;
     s->picture_structure = AV_PICTURE_STRUCTURE_UNKNOWN;
 
+#if CONFIG_H264_SEI
     ff_h264_sei_uninit(&p->sei);
     p->sei.common.frame_packing.arrangement_cancel_flag = -1;
     p->sei.common.unregistered.x264_build = -1;
+#endif //CONFIG_H264_SEI
 
     if (!buf_size)
         return 0;
@@ -343,9 +345,11 @@ static inline int parse_nal_units(AVCodecParserContext *s,
             ff_h264_decode_picture_parameter_set(&nal.gb, avctx, &p->ps,
                                                  nal.size_bits);
             break;
+#if CONFIG_H264_SEI
         case H264_NAL_SEI:
             ff_h264_sei_decode(&p->sei, &nal.gb, &p->ps, avctx);
             break;
+#endif //CONFIG_H264_SEI
         case H264_NAL_IDR_SLICE:
             s->key_frame = 1;
 
@@ -477,6 +481,7 @@ static inline int parse_nal_units(AVCodecParserContext *s,
                 }
             }
 
+#if CONFIG_H264_SEI
             if (p->sei.picture_timing.present) {
                 ret = ff_h264_sei_process_picture_timing(&p->sei.picture_timing,
                                                          sps, avctx);
@@ -485,6 +490,7 @@ static inline int parse_nal_units(AVCodecParserContext *s,
                     p->sei.picture_timing.present = 0;
                 }
             }
+#endif //CONFIG_H264_SEI
 
             if (sps->pic_struct_present_flag && p->sei.picture_timing.present) {
                 switch (p->sei.picture_timing.pic_struct) {
@@ -667,7 +673,9 @@ static void h264_close(AVCodecParserContext *s)
 
     av_freep(&pc->buffer);
 
+#if CONFIG_H264_SEI
     ff_h264_sei_uninit(&p->sei);
+#endif //CONFIG_H264_SEI
     ff_h264_ps_uninit(&p->ps);
 }
 

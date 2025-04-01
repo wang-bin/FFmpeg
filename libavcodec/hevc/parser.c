@@ -190,7 +190,9 @@ static int parse_nal_units(AVCodecParserContext *s, const uint8_t *buf,
     s->key_frame         = 0;
     s->picture_structure = AV_PICTURE_STRUCTURE_UNKNOWN;
 
+#if CONFIG_HEVC_SEI
     ff_hevc_reset_sei(sei);
+#endif //CONFIG_HEVC_SEI
 
     ret = ff_h2645_packet_split(&ctx->pkt, buf, buf_size, avctx,
                                 ctx->nal_length_size, AV_CODEC_ID_HEVC, flags);
@@ -214,10 +216,12 @@ static int parse_nal_units(AVCodecParserContext *s, const uint8_t *buf,
         case HEVC_NAL_PPS:
             ff_hevc_decode_nal_pps(gb, avctx, ps);
             break;
+#if CONFIG_HEVC_SEI
         case HEVC_NAL_SEI_PREFIX:
         case HEVC_NAL_SEI_SUFFIX:
             ff_hevc_decode_nal_sei(gb, avctx, sei, ps, nal->type);
             break;
+#endif //CONFIG_HEVC_SEI
         case HEVC_NAL_TRAIL_N:
         case HEVC_NAL_TRAIL_R:
         case HEVC_NAL_TSA_N:
@@ -347,7 +351,9 @@ static void hevc_parser_close(AVCodecParserContext *s)
 
     ff_hevc_ps_uninit(&ctx->ps);
     ff_h2645_packet_uninit(&ctx->pkt);
+#if CONFIG_HEVC_SEI
     ff_hevc_reset_sei(&ctx->sei);
+#endif //CONFIG_HEVC_SEI
 
     av_freep(&ctx->pc.buffer);
 }

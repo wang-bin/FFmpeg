@@ -312,7 +312,9 @@ static int h264_init_context(AVCodecContext *avctx, H264Context *h)
     for (i = 0; i < FF_ARRAY_ELEMS(h->last_pocs); i++)
         h->last_pocs[i] = INT_MIN;
 
+#if CONFIG_H264_SEI
     ff_h264_sei_uninit(&h->sei);
+#endif // CONFIG_H264_SEI
 
     if (avctx->active_thread_type & FF_THREAD_FRAME) {
         h->decode_error_flags_pool = ff_refstruct_pool_alloc(sizeof(atomic_int), 0);
@@ -371,7 +373,9 @@ static av_cold int h264_decode_end(AVCodecContext *avctx)
     av_freep(&h->slice_ctx);
     h->nb_slice_ctx = 0;
 
+#if CONFIG_H264_SEI
     ff_h264_sei_uninit(&h->sei);
+#endif //CONFIG_H264_SEI
     ff_h264_ps_uninit(&h->ps);
 
     ff_h2645_packet_uninit(&h->pkt);
@@ -490,7 +494,9 @@ static void h264_decode_flush(AVCodecContext *avctx)
     memset(h->delayed_pic, 0, sizeof(h->delayed_pic));
 
     ff_h264_flush_change(h);
+#if CONFIG_H264_SEI
     ff_h264_sei_uninit(&h->sei);
+#endif //CONFIG_H264_SEI
 
     for (i = 0; i < H264_MAX_PICTURE_COUNT; i++)
         ff_h264_unref_picture(&h->DPB[i]);
@@ -603,7 +609,9 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
         h->current_slice = 0;
         if (!h->first_field) {
             h->cur_pic_ptr = NULL;
+#if CONFIG_H264_SEI
             ff_h264_sei_uninit(&h->sei);
+#endif // CONFIG_H264_SEI
         }
     }
 
@@ -690,6 +698,7 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
         case H264_NAL_DPC:
             avpriv_request_sample(avctx, "data partitioning");
             break;
+#if CONFIG_H264_SEI
         case H264_NAL_SEI:
             if (h->setup_finished) {
                 avpriv_request_sample(avctx, "Late SEI");
@@ -702,6 +711,7 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
             if (ret < 0 && (h->avctx->err_recognition & AV_EF_EXPLODE))
                 goto end;
             break;
+#endif // CONFIG_H264_SEI
         case H264_NAL_SPS: {
             GetBitContext tmp_gb = nal->gb;
             if (FF_HW_HAS_CB(avctx, decode_params)) {
@@ -893,7 +903,9 @@ static int output_frame(H264Context *h, AVFrame *dst, H264Picture *srcp)
         dst->decode_error_flags |= atomic_load_explicit(decode_error, memory_order_relaxed);
     }
 
+#if CONFIG_H264_SEI
     av_dict_set(&dst->metadata, "stereo_mode", ff_h264_sei_stereo_mode(&h->sei.common.frame_packing), 0);
+#endif // CONFIG_H264_SEI
 
     if (srcp->sei_recovery_frame_cnt == 0)
         dst->flags |= AV_FRAME_FLAG_KEY;
