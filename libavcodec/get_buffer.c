@@ -254,6 +254,7 @@ int avcodec_default_get_buffer2(AVCodecContext *avctx, AVFrame *frame, int flags
 {
     int ret;
 
+#ifndef __wasm__
     if (avctx->hw_frames_ctx) {
         ret = av_hwframe_get_buffer(avctx->hw_frames_ctx, frame, 0);
         if (ret == AVERROR(ENOMEM)) {
@@ -276,6 +277,7 @@ int avcodec_default_get_buffer2(AVCodecContext *avctx, AVFrame *frame, int flags
         frame->height = avctx->coded_height;
         return ret;
     }
+#endif// __wasm__
 
     if ((ret = update_frame_pool(avctx, frame)) < 0)
         return ret;

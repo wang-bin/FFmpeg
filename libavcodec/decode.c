@@ -1403,6 +1403,7 @@ static int side_data_map(AVFrame *dst,
         if (!sd_pkt)
             continue;
 
+#ifndef __wasm__
         sd_frame = av_frame_get_side_data(dst, type_frame);
         if (sd_frame) {
             if (type_frame == AV_FRAME_DATA_STEREO3D) {
@@ -1413,6 +1414,7 @@ static int side_data_map(AVFrame *dst,
 
             continue;
         }
+#endif// __wasm__
 
         sd_frame = av_frame_new_side_data(dst, type_frame, sd_pkt->size);
         if (!sd_frame)
@@ -1458,9 +1460,11 @@ int ff_decode_frame_props_from_pkt(const AVCodecContext *avctx,
     if (ret < 0)
         return ret;
 
+#ifndef __wasm__
     ret = side_data_map(frame, pkt->side_data, pkt->side_data_elems, sd);
     if (ret < 0)
         return ret;
+#endif// __wasm__
 
     add_metadata_from_side_data(pkt, frame);
 

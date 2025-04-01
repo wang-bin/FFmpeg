@@ -118,12 +118,14 @@ static int adts_aac_read_header(AVFormatContext *s)
     ffstream(st)->need_parsing = AVSTREAM_PARSE_FULL_RAW;
 
     ff_id3v1_read(s);
+#ifndef __wasm__
     if ((s->pb->seekable & AVIO_SEEKABLE_NORMAL) &&
         !av_dict_count(s->metadata)) {
         int64_t cur = avio_tell(s->pb);
         ff_ape_parse_tag(s);
         avio_seek(s->pb, cur, SEEK_SET);
     }
+#endif
 
     ret = adts_aac_resync(s);
     if (ret < 0)

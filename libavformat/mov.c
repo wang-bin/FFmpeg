@@ -2716,10 +2716,12 @@ static void mov_parse_stsd_video(MOVContext *c, AVIOContext *pb,
 
     avio_seek(pb, stsd_start, SEEK_SET);
 
+#ifndef __wasm__
     if (ff_get_qtpalette(st->codecpar->codec_id, pb, sc->palette)) {
         st->codecpar->bits_per_coded_sample &= 0x1F;
         sc->has_palette = 1;
     }
+#endif // __wasm__
 }
 
 static void mov_parse_stsd_audio(MOVContext *c, AVIOContext *pb,
@@ -7100,6 +7102,7 @@ static int mov_read_vexu(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 return ret;
             break;
         }
+#ifndef __wasm__
         case MKTAG('e','y','e','s'): {
             MOVAtom eyes = { tag, size - 8 };
             int ret = mov_read_eyes(c, pb, eyes);
@@ -7114,6 +7117,7 @@ static int mov_read_vexu(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 return ret;
             break;
         }
+#endif
         default:
             av_log(c->fc, AV_LOG_WARNING, "Unknown tag in vexu: 0x%08X\n", tag);
             avio_skip(pb, size - 8);
@@ -7316,10 +7320,12 @@ static int mov_read_uuid(MOVContext *c, AVIOContext *pb, MOVAtom atom)
                 return ret;
         }
     } else if (av_uuid_equal(uuid, uuid_spherical)) {
+#ifndef __wasm__
         size_t len = atom.size - AV_UUID_LEN;
         ret = mov_parse_uuid_spherical(sc, pb, len);
         if (ret < 0)
             return ret;
+#endif
         if (!sc->spherical)
             av_log(c->fc, AV_LOG_WARNING, "Invalid spherical metadata found\n");
     }
@@ -9348,7 +9354,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('g','l','b','l'), mov_read_glbl },
 { MKTAG('h','d','l','r'), mov_read_hdlr },
 { MKTAG('i','l','s','t'), mov_read_ilst },
-{ MKTAG('j','p','2','h'), mov_read_jp2h },
+//{ MKTAG('j','p','2','h'), mov_read_jp2h },
 { MKTAG('m','d','a','t'), mov_read_mdat },
 { MKTAG('m','d','h','d'), mov_read_mdhd },
 { MKTAG('m','d','i','a'), mov_read_default },
@@ -9382,7 +9388,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('t','r','a','k'), mov_read_trak },
 { MKTAG('t','r','a','f'), mov_read_default },
 { MKTAG('t','r','e','f'), mov_read_default },
-{ MKTAG('t','m','c','d'), mov_read_tmcd },
+//{ MKTAG('t','m','c','d'), mov_read_tmcd },
 { MKTAG('c','h','a','p'), mov_read_chap },
 { MKTAG('t','r','e','x'), mov_read_trex },
 { MKTAG('t','r','u','n'), mov_read_trun },
@@ -9402,7 +9408,7 @@ static const MOVParseTableEntry mov_default_parse_table[] = {
 { MKTAG('s','b','g','p'), mov_read_sbgp },
 { MKTAG('h','v','c','C'), mov_read_glbl },
 { MKTAG('v','v','c','C'), mov_read_glbl },
-{ MKTAG('u','u','i','d'), mov_read_uuid },
+//{ MKTAG('u','u','i','d'), mov_read_uuid },
 { MKTAG('C','i','n', 0x8e), mov_read_targa_y216 },
 { MKTAG('f','r','e','e'), mov_read_free },
 { MKTAG('-','-','-','-'), mov_read_custom },
@@ -10632,13 +10638,12 @@ static int mov_read_header(AVFormatContext *s)
     }
     av_log(mov->fc, AV_LOG_TRACE, "on_parse_exit_offset=%"PRId64"\n", avio_tell(pb));
 
-#if 0
+#ifndef __wasm__
     if (mov->found_iloc && mov->found_iinf) {
         err = mov_parse_heif_items(s);
         if (err < 0)
             return err;
     }
-#endif
     // prevent iloc and iinf boxes from being parsed while reading packets.
     // this is needed because an iinf box may have been parsed but ignored
     // for having old infe boxes which create no streams.
@@ -10677,7 +10682,9 @@ static int mov_read_header(AVFormatContext *s)
         }
     }
     export_orphan_timecode(s);
+#endif //__wasm__
 
+#if CONFIG_LIBLCEVC_DEC
     /* Create LCEVC stream groups. */
     err = mov_parse_lcevc_streams(s);
     if (err < 0)
@@ -10760,6 +10767,7 @@ static int mov_read_header(AVFormatContext *s)
             }
         }
     }
+#endif
 
     for (i = 0; i < mov->bitrates_count && i < s->nb_streams; i++) {
         if (mov->bitrates[i]) {

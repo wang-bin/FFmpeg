@@ -2897,11 +2897,13 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
         AVCodecContext *const avctx = sti->avctx;
 
         if (avctx->codec_type == AVMEDIA_TYPE_VIDEO) {
+#ifndef __wasm__
             if (avctx->codec_id == AV_CODEC_ID_RAWVIDEO && !avctx->codec_tag && !avctx->bits_per_coded_sample) {
                 uint32_t tag= avcodec_pix_fmt_to_codec_tag(avctx->pix_fmt);
                 if (avpriv_pix_fmt_find(PIX_FMT_LIST_RAW, tag) == avctx->pix_fmt)
                     avctx->codec_tag= tag;
             }
+#endif
 
             /* estimate average framerate if not set by demuxer */
             if (sti->info->codec_info_duration_fields &&
