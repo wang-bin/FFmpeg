@@ -3139,6 +3139,7 @@ static int set_side_data(HEVCContext *s)
             return ret;
     }
 
+#if CONFIG_DOVI_RPUDEC
     if (s->rpu_buf) {
         AVFrameSideData *rpu = av_frame_new_side_data_from_buf(out, AV_FRAME_DATA_DOVI_RPU_BUFFER, s->rpu_buf);
         if (!rpu)
@@ -3149,6 +3150,7 @@ static int set_side_data(HEVCContext *s)
 
     if ((ret = ff_dovi_attach_side_data(&s->dovi_ctx, out)) < 0)
         return ret;
+#endif // CONFIG_DOVI_RPUDEC
 
     if (s->sei.common.dynamic_hdr_vivid.info) {
         if (!av_frame_side_data_add(&out->side_data, &out->nb_side_data,
@@ -3745,6 +3747,7 @@ static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
      * We have to do this check here an create the rpu buffer, since RPUs are appended
      * to the end of an AU; they are the last non-EOB/EOS NAL in the AU.
      */
+#if CONFIG_DOVI_RPUDEC
     if (s->pkt.nb_nals > 1 && s->pkt.nals[s->pkt.nb_nals - 1].type == HEVC_NAL_UNSPEC62 &&
         s->pkt.nals[s->pkt.nb_nals - 1].size > 2 && !s->pkt.nals[s->pkt.nb_nals - 1].nuh_layer_id
         && !s->pkt.nals[s->pkt.nb_nals - 1].temporal_id) {
@@ -3769,6 +3772,7 @@ static int decode_nal_units(HEVCContext *s, const uint8_t *buf, int length)
             /* ignore */
         }
     }
+#endif // CONFIG_DOVI_RPUDEC
 
     /* decode the NAL units */
     for (i = 0; i < s->pkt.nb_nals; i++) {
@@ -3942,7 +3946,9 @@ static av_cold int hevc_decode_free(AVCodecContext *avctx)
 
     av_refstruct_unref(&s->h274db);
 
+#if CONFIG_DOVI_RPUDEC
     ff_dovi_ctx_unref(&s->dovi_ctx);
+#endif // CONFIG_DOVI_RPUDEC
     av_buffer_unref(&s->rpu_buf);
 
     av_freep(&s->md5_ctx);
@@ -4204,7 +4210,9 @@ static void hevc_decode_flush(AVCodecContext *avctx)
     HEVCContext *s = avctx->priv_data;
     ff_hevc_flush_dpb(s);
     ff_hevc_reset_sei(&s->sei);
+#if CONFIG_DOVI_RPUDEC
     ff_dovi_ctx_flush(&s->dovi_ctx);
+#endif // CONFIG_DOVI_RPUDEC
     av_buffer_unref(&s->rpu_buf);
     s->eos = 1;
 
