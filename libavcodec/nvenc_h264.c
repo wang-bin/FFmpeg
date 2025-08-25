@@ -26,6 +26,7 @@
 #define OFFSET(x) offsetof(NvencContext, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
+    { "api",           "Set the API version",               OFFSET(apiver_req),   AV_OPT_TYPE_FLOAT, { .dbl = 0 }, 0, 100, VE },
 #ifdef NVENC_HAVE_NEW_PRESETS
     { "preset",       "Set the encoding preset",            OFFSET(preset),       AV_OPT_TYPE_INT,   { .i64 = PRESET_P4 },     PRESET_DEFAULT, PRESET_P7,          VE, .unit = "preset" },
 #else
