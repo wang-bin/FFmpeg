@@ -222,6 +222,7 @@ typedef struct NvencContext
     uint32_t frame_idx_counter;
     uint32_t next_view_id;
 
+    float apiver_req; // for testing
     int preset;
     int profile;
     int level;
