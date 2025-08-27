@@ -44,12 +44,17 @@
 #include "encode.h"
 #include "internal.h"
 
+#undef CONFIG_AV1_NVENC_ENCODER
+#define CONFIG_AV1_NVENC_ENCODER (NVENCAPI_MAJOR_VERSION >= 12)
+#define FF_NVENC(f) AV_JOIN(f, AV_JOIN(NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION))
+
 #define CHECK_CU(x) FF_CUDA_CHECK_DL(avctx, dl_fn->cuda_dl, x)
 
 #define NVENC_CAP 0x30
 
 #define IS_CBR(rc) (rc == NV_ENC_PARAMS_RC_CBR)
 
+#ifndef FF_NVENC_DUP
 const enum AVPixelFormat ff_nvenc_pix_fmts[] = {
     AV_PIX_FMT_YUV420P,
     AV_PIX_FMT_NV12,
@@ -91,6 +96,7 @@ const AVCodecHWConfigInternal *const ff_nvenc_hw_configs[] = {
 #endif
     NULL,
 };
+#endif // FF_NVENC_DUP
 
 #define IS_10BIT(pix_fmt)  (pix_fmt == AV_PIX_FMT_P010         || \
                             pix_fmt == AV_PIX_FMT_P012         || \
@@ -361,14 +367,16 @@ static av_cold int nvenc_load_libraries(AVCodecContext *avctx)
     func_ver = struct_ver_rt(ctx, 2);
     av_log(avctx, AV_LOG_INFO, "Loaded Nvenc version %u.%u, max: %u.%u, build api: %u.%u. config_ver: %u\n", ctx->apiver_rt & 0xff, (ctx->apiver_rt >> 24) & 0xff, nvenc_max_major, nvenc_max_minor, NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION, config_ver);
 
+#if 0
     if ((NVENCAPI_MAJOR_VERSION << 4 | NVENCAPI_MINOR_VERSION) > nvenc_max_ver) {
         av_log(avctx, AV_LOG_WARNING, "Driver does not support the required nvenc API version. "
                "Required: %d.%d Found: %d.%d\n",
                NVENCAPI_MAJOR_VERSION, NVENCAPI_MINOR_VERSION,
                nvenc_max_major, nvenc_max_minor);
         nvenc_print_driver_requirement(avctx, AV_LOG_WARNING);
-        //return AVERROR(ENOSYS);
+        return AVERROR(ENOSYS);
     }
+#endif
     dl_fn->nvenc_funcs.version = func_ver;
 
     err = dl_fn->nvenc_dl->NvEncodeAPICreateInstance(&dl_fn->nvenc_funcs);
@@ -2074,7 +2082,8 @@ static av_cold int nvenc_setup_extradata(AVCodecContext *avctx)
     return 0;
 }
 
-av_cold int ff_nvenc_encode_close(AVCodecContext *avctx)
+int FF_NVENC(ff_nvenc_encode_close)(AVCodecContext *avctx);
+av_cold int FF_NVENC(ff_nvenc_encode_close)(AVCodecContext *avctx)
 {
     NvencContext *ctx               = avctx->priv_data;
     NvencDynLoadFunctions *dl_fn = &ctx->nvenc_dload_funcs;
@@ -2162,7 +2171,8 @@ av_cold int ff_nvenc_encode_close(AVCodecContext *avctx)
     return 0;
 }
 
-av_cold int ff_nvenc_encode_init(AVCodecContext *avctx)
+int FF_NVENC(ff_nvenc_encode_init)(AVCodecContext *avctx);
+av_cold int FF_NVENC(ff_nvenc_encode_init)(AVCodecContext *avctx)
 {
     NvencContext *ctx = avctx->priv_data;
     int ret;
@@ -3211,7 +3221,8 @@ static int nvenc_send_frame(AVCodecContext *avctx, const AVFrame *frame)
     return 0;
 }
 
-int ff_nvenc_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
+int FF_NVENC(ff_nvenc_receive_packet)(AVCodecContext *avctx, AVPacket *pkt);
+int FF_NVENC(ff_nvenc_receive_packet)(AVCodecContext *avctx, AVPacket *pkt)
 {
     NvencSurface *tmp_out_surf;
     int res, res2;
@@ -3262,7 +3273,8 @@ int ff_nvenc_receive_packet(AVCodecContext *avctx, AVPacket *pkt)
     return 0;
 }
 
-av_cold void ff_nvenc_encode_flush(AVCodecContext *avctx)
+void FF_NVENC(ff_nvenc_encode_flush)(AVCodecContext *avctx);
+av_cold void FF_NVENC(ff_nvenc_encode_flush)(AVCodecContext *avctx)
 {
     NvencContext *ctx = avctx->priv_data;
 
