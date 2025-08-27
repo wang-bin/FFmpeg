@@ -189,8 +189,6 @@ typedef struct NvencContext
 
     NvencDynLoadFunctions nvenc_dload_funcs;
 
-    NV_ENC_INITIALIZE_PARAMS init_encode_params;
-    NV_ENC_CONFIG encode_config;
     CUcontext cu_context;
     CUcontext cu_context_internal;
     CUstream cu_stream;
@@ -289,6 +287,9 @@ typedef struct NvencContext
     int lookahead_level;
     int unidir_b;
     int split_encode_mode;
+
+    NV_ENC_CONFIG encode_config;                    // size: 3584
+    NV_ENC_INITIALIZE_PARAMS init_encode_params;    // size: 1800 for 12.2+, 1808 otherwise
 } NvencContext;
 
 int ff_nvenc_encode_init(AVCodecContext *avctx);

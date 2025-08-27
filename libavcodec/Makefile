@@ -266,6 +266,7 @@ OBJS-$(CONFIG_AV1_CUVID_DECODER)       += cuviddec.o
 OBJS-$(CONFIG_AV1_MEDIACODEC_DECODER)  += mediacodecdec.o
 OBJS-$(CONFIG_AV1_MEDIACODEC_ENCODER)  += mediacodecenc.o
 OBJS-$(CONFIG_AV1_NVENC_ENCODER)       += nvenc_av1.o nvenc.o
+OBJS-$(CONFIG_AV1_NVENC_ENCODER)       += nvenc_dispatch.o nvenc_91.o nvenc_111.o nvenc_120.o nvenc_121.o
 OBJS-$(CONFIG_AV1_QSV_ENCODER)         += qsvenc_av1.o
 OBJS-$(CONFIG_AV1_VAAPI_ENCODER)       += vaapi_encode_av1.o av1_levels.o
 OBJS-$(CONFIG_AVRN_DECODER)            += avrndec.o
