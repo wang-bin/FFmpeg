@@ -979,8 +979,8 @@ static int videotoolbox_start(AVCodecContext *avctx)
 
     videotoolbox->cm_fmt_desc = videotoolbox_format_desc_create(videotoolbox->cm_codec_type,
                                                                 decoder_spec,
-                                                                avctx->width,
-                                                                avctx->height);
+                                                                avctx->coded_width,
+                                                                avctx->coded_height);
     if (!videotoolbox->cm_fmt_desc) {
         if (decoder_spec)
             CFRelease(decoder_spec);
@@ -989,8 +989,8 @@ static int videotoolbox_start(AVCodecContext *avctx)
         return -1;
     }
 
-    buf_attr = videotoolbox_buffer_attributes_create(avctx->width,
-                                                     avctx->height,
+    buf_attr = videotoolbox_buffer_attributes_create(avctx->coded_width,
+                                                     avctx->coded_height,
                                                      videotoolbox->cv_pix_fmt_type);
 
     decoder_cb.decompressionOutputCallback = videotoolbox_decoder_callback;
@@ -1029,6 +1029,21 @@ static int videotoolbox_start(AVCodecContext *avctx)
     default:
         av_log(avctx, AV_LOG_VERBOSE, "Unknown VideoToolbox session creation error %d\n", (int)status);
         return AVERROR_UNKNOWN;
+    }
+
+    if (avctx->lowres) {
+        CFMutableDictionaryRef dict = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFMutableDictionaryRef res = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+        CFNumberRef w = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &avctx->width);
+        CFNumberRef h = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &avctx->height);
+        CFDictionarySetValue(res, kVTDecompressionResolutionKey_Width, w);
+        CFDictionarySetValue(res, kVTDecompressionResolutionKey_Height, h);
+        CFDictionarySetValue(dict, kVTDecompressionPropertyKey_ReducedResolutionDecode, res);
+        VTSessionSetProperties(videotoolbox->session, dict);
+        CFRelease(w);
+        CFRelease(h);
+        CFRelease(res);
+        CFRelease(dict);
     }
 }
 
