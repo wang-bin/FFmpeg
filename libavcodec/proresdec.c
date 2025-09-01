@@ -207,11 +207,11 @@ static int decode_frame_header(ProresContext *ctx, const uint8_t *buf,
     width  = AV_RB16(buf + 8);
     height = AV_RB16(buf + 10);
 
-    if (width != avctx->width || height != avctx->height) {
+    if (width != avctx->coded_width || height != avctx->coded_height) {
         int ret;
 
         av_log(avctx, AV_LOG_WARNING, "picture resolution change: %dx%d -> %dx%d\n",
-               avctx->width, avctx->height, width, height);
+               avctx->coded_width, avctx->coded_height, width, height);
         if ((ret = ff_set_dimensions(avctx, width, height)) < 0)
             return ret;
     }
@@ -335,11 +335,11 @@ static int decode_picture_header(AVCodecContext *avctx, const uint8_t *buf, cons
         return AVERROR_INVALIDDATA;
     }
 
-    ctx->mb_width  = (avctx->width  + 15) >> 4;
+    ctx->mb_width  = (avctx->coded_width  + 15) >> 4;
     if (ctx->frame_type)
-        ctx->mb_height = (avctx->height + 31) >> 5;
+        ctx->mb_height = (avctx->coded_height + 31) >> 5;
     else
-        ctx->mb_height = (avctx->height + 15) >> 4;
+        ctx->mb_height = (avctx->coded_height + 15) >> 4;
 
     // QT ignores the written value
     // slice_count = AV_RB16(buf + 5);
@@ -851,6 +851,7 @@ const FFCodec ff_prores_decoder = {
     FF_CODEC_DECODE_CB(decode_frame),
     UPDATE_THREAD_CONTEXT(update_thread_context),
     .p.capabilities = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS,
+    .p.max_lowres   = 3,
     .p.profiles     = NULL_IF_CONFIG_SMALL(ff_prores_profiles),
 #if HWACCEL_MAX
     .hw_configs     = (const AVCodecHWConfigInternal *const []) {
