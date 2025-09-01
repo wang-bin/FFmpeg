@@ -367,15 +367,14 @@ static int decode_frame(AVCodecContext *avctx,
     if ((w & 1) || (h & 1))
         return AVERROR_INVALIDDATA;
 
-    if (w != avctx->width || h != avctx->height) {
+    w = FFALIGN(w, 16);
+    h = FFALIGN(h, 16);
+    if (w != avctx->coded_width || h != avctx->coded_height) {
         av_log(avctx, AV_LOG_WARNING, "picture resolution change: %ix%i -> %ix%i\n",
-               avctx->width, avctx->height, w, h);
+               avctx->coded_width, avctx->coded_height, w, h);
         if ((ret = ff_set_dimensions(avctx, w, h)) < 0)
             return ret;
     }
-
-    avctx->coded_width  = FFALIGN(w, 16);
-    avctx->coded_height = FFALIGN(h, 16);
 
     enum AVPixelFormat pix_fmt = AV_PIX_FMT_BAYER_RGGB16;
     if (pix_fmt != s->pix_fmt) {
@@ -412,8 +411,8 @@ static int decode_frame(AVCodecContext *avctx,
 
     ff_permute_scantable(s->qmat, s->prodsp.idct_permutation, qmat);
 
-    s->nb_tw = (w + 15) >> 4;
-    s->nb_th = (h + 15) >> 4;
+    s->nb_tw = w >> 4;
+    s->nb_th = h >> 4;
     s->nb_tw = (s->nb_tw >> align) + align_tile_w[~(-1 * (1 << align)) & s->nb_tw];
     s->nb_tiles = s->nb_tw * s->nb_th;
     av_log(avctx, AV_LOG_DEBUG, "%dx%d | nb_tiles: %d\n", s->nb_tw, s->nb_th, s->nb_tiles);
@@ -526,6 +525,7 @@ const FFCodec ff_prores_raw_decoder = {
     .p.capabilities   = AV_CODEC_CAP_DR1 |
                         AV_CODEC_CAP_FRAME_THREADS |
                         AV_CODEC_CAP_SLICE_THREADS,
+    .p.max_lowres   = 3,
     .caps_internal  = FF_CODEC_CAP_INIT_CLEANUP |
                       FF_CODEC_CAP_SKIP_FRAME_FILL_PARAM,
     .hw_configs     = (const AVCodecHWConfigInternal *const []) {
