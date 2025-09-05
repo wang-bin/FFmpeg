@@ -3119,7 +3119,7 @@ static int hls_probe(const AVProbeData *p)
             !av_match_ext    (p->filename, "m3u8,m3u") &&
              ff_match_url_ext(p->filename, "m3u8,m3u") <= 0) {
             av_log(NULL, AV_LOG_ERROR, "Not detecting m3u8/hls with non standard extension and non standard mime type\n");
-            return 0;
+            return AVPROBE_SCORE_MAX / 2;
         }
         if (mime_x)
             av_log(NULL, AV_LOG_WARNING, "mime type is not rfc8216 compliant\n");
