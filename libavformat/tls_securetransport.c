@@ -165,11 +165,25 @@ static int load_cert(URLContext *h)
     if ((ret = import_pem(h, c->tls_shared.key_file, &keyArray)) < 0)
         goto end;
 
-    if (!(id = SecIdentityCreate(kCFAllocatorDefault,
-                                 (SecCertificateRef)CFArrayGetValueAtIndex(certArray, 0),
-                                 (SecKeyRef)CFArrayGetValueAtIndex(keyArray, 0)))) {
-        ret = AVERROR_UNKNOWN;
-        goto end;
+    if (__builtin_available(macOS 10.12, iOS 11.2, tvOS 11.2, macCatalyst 13.1, visionOS 1.0, *)) {
+        if (!(id = SecIdentityCreate(kCFAllocatorDefault,
+                                     (SecCertificateRef)CFArrayGetValueAtIndex(certArray, 0),
+                                     (SecKeyRef)CFArrayGetValueAtIndex(keyArray, 0)))) {
+            ret = AVERROR_UNKNOWN;
+            goto end;
+        }
+    } else {
+#if defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wunguarded-availability"
+        if (!(id = SecIdentityCreate(kCFAllocatorDefault,
+                                    (SecCertificateRef)CFArrayGetValueAtIndex(certArray, 0),
+                                    (SecKeyRef)CFArrayGetValueAtIndex(keyArray, 0)))) {
+            ret = AVERROR_UNKNOWN;
+            goto end;
+        }
+#pragma clang diagnostic pop
+#endif
     }
 
     if (!(outArray = CFArrayCreateMutableCopy(kCFAllocatorDefault, 0, certArray))) {
