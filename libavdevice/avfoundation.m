@@ -224,7 +224,7 @@ static void unlock_frames(AVFContext* ctx)
     if (context == _context) {
 #if !TARGET_OS_IPHONE && __MAC_OS_X_VERSION_MIN_REQUIRED >= 1070
         AVCaptureDeviceTransportControlsPlaybackMode mode =
-            [change[NSKeyValueChangeNewKey] integerValue];
+            [[change valueForKey:NSKeyValueChangeNewKey] integerValue];
 
         if (mode != _context->observed_mode) {
             if (mode == AVCaptureDeviceTransportControlsNotPlayingMode) {
