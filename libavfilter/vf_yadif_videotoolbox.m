@@ -248,9 +248,14 @@ static av_cold int do_init(AVFilterContext *ctx) API_AVAILABLE(macos(10.11), ios
         goto fail;
     }
 
+
+    MTLResourceOptions options = 0;
+    if (@available(macOS 10.11, iOS 9.0, tvOS 9.0, macCatalyst 13.1, visionOS 1.0, *)) {
+        options |= MTLResourceStorageModeShared;
+    }
     s->mtlParamsBuffer = [s->mtlDevice
         newBufferWithLength:sizeof(struct mtlYadifParams)
-        options:MTLResourceStorageModeShared];
+        options:options];
     if (!s->mtlParamsBuffer) {
         av_log(ctx, AV_LOG_ERROR, "Failed to create Metal buffer for parameters\n");
         goto fail;
