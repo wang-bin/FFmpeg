@@ -933,7 +933,7 @@ static inline int decode_slice_header(AVSContext *h, GetBitContext *gb)
         av_log(h->avctx, AV_LOG_ERROR, "unexpected start code 0x%02x\n", h->stc);
 
     if (h->stc >= h->mb_height) {
-        av_log(h->avctx, AV_LOG_ERROR, "stc 0x%02x is too large\n", h->stc);
+        av_log(h->avctx, AV_LOG_ERROR, "stc 0x%02x is too large, mb_height=%d\n", h->mb_height, h->stc);
         return AVERROR_INVALIDDATA;
     }
 
@@ -953,6 +953,7 @@ static inline int decode_slice_header(AVSContext *h, GetBitContext *gb)
             av_log(h->avctx, AV_LOG_ERROR,
                    "weighted prediction not yet supported\n");
         }
+    // aec_enable
     return 0;
 }
 
@@ -972,6 +973,7 @@ static inline int check_for_slice(AVSContext *h)
         h->stc = get_bits(gb, 8);
         if (h->stc >= h->mb_height)
             return 0;
+                av_log(h->avctx, AV_LOG_INFO, "check_for_slice\n");
         decode_slice_header(h, gb);
         return 1;
     }
@@ -998,6 +1000,10 @@ static int decode_pic(AVSContext *h)
     av_frame_unref(h->cur.f);
 
     skip_bits(&h->gb, 16);//bbv_dwlay
+    if (h->profile == 0x48) {
+        skip_bits1(&h->gb);
+        skip_bits(&h->gb, 7);//bbv_delay_extension
+    }
     if (h->stc == PIC_PB_START_CODE) {
         h->cur.f->pict_type = get_bits(&h->gb, 2) + AV_PICTURE_TYPE_I;
         if (h->cur.f->pict_type > AV_PICTURE_TYPE_B) {
@@ -1077,14 +1083,15 @@ static int decode_pic(AVSContext *h)
     h->qp       = get_bits(&h->gb, 6);
     if (h->cur.f->pict_type == AV_PICTURE_TYPE_I) {
         if (!h->progressive && !h->pic_structure)
-            skip_bits1(&h->gb);//what is this?
+            skip_bits1(&h->gb);//what is this? skip_mode_flag
         skip_bits(&h->gb, 4);   //reserved bits
     } else {
         if (!(h->cur.f->pict_type == AV_PICTURE_TYPE_B && h->pic_structure == 1))
             h->ref_flag        = get_bits1(&h->gb);
-        skip_bits(&h->gb, 4);   //reserved bits
+        skip_bits(&h->gb, 4);   //reserved bits = no_forward_reference_flag:1 + pb_field_enhanced_flag:1 + 2
         h->skip_mode_flag      = get_bits1(&h->gb);
     }
+    // extension header
     h->loop_filter_disable     = get_bits1(&h->gb);
     if (!h->loop_filter_disable && get_bits1(&h->gb)) {
         h->alpha_offset        = get_se_golomb(&h->gb);
@@ -1096,6 +1103,30 @@ static int decode_pic(AVSContext *h)
         }
     } else {
         h->alpha_offset = h->beta_offset  = 0;
+    }
+    if (h->profile == 0x48) {
+        unsigned weighting_quant_flag = get_bits1(&h->gb);
+        if (weighting_quant_flag) {
+            skip_bits1(&h->gb);
+            unsigned chroma_quant_param_disable = get_bits1(&h->gb);
+            if (!chroma_quant_param_disable) {
+                unsigned chroma_quant_param_delta_cb = get_se_golomb(&h->gb);
+                unsigned chroma_quant_param_delta_cr = get_se_golomb(&h->gb);
+            }
+            unsigned weighting_quant_param_index = get_bits(&h->gb, 2);
+            unsigned weighting_quant_model = get_bits(&h->gb, 2);
+            if (weighting_quant_param_index == 1) {
+                for (int i = 0; i < 6; ++i) {
+                    get_se_golomb(&h->gb); // weighting_quant_param_delta1
+                }
+            } else if (weighting_quant_param_index == 2) {
+                for (int i = 0; i < 6; ++i) {
+                    get_se_golomb(&h->gb); // weighting_quant_param_delta2
+                }
+            }
+        }
+        //!< advance entropy coding
+        unsigned aec_enable = get_bits1(&h->gb);
     }
 
     ret = 0;
@@ -1183,7 +1214,9 @@ static int decode_seq_header(AVSContext *h)
     int ret;
 
     h->profile = get_bits(&h->gb, 8);
-    if (h->profile != 0x20) {
+    if (h->profile != 0x20 && h->profile != 0x48) {
+        av_log(h->avctx, AV_LOG_WARNING,
+               "profile %#X\n", h->profile);
         avpriv_report_missing_feature(h->avctx,
                                       "only support JiZhun profile");
         return AVERROR_PATCHWELCOME;
@@ -1193,6 +1226,8 @@ static int decode_seq_header(AVSContext *h)
 
     width  = get_bits(&h->gb, 14);
     height = get_bits(&h->gb, 14);
+    av_log(h->avctx, AV_LOG_INFO, "CAVS %dx%d profile %#X level %#X\n",
+           width, height, h->profile, h->level);
     if ((h->width || h->height) && (h->width != width || h->height != height)) {
         avpriv_report_missing_feature(h->avctx,
                                       "Width/height changing in CAVS");
@@ -1265,7 +1300,7 @@ static int cavs_decode_frame(AVCodecContext *avctx, AVFrame *rframe,
         buf_ptr = avpriv_find_start_code(buf_ptr, buf_end, &stc);
         if ((stc & 0xFFFFFE00) || buf_ptr == buf_end) {
             if (!h->stc)
-                av_log(h->avctx, AV_LOG_WARNING, "no frame decoded\n");
+                av_log(h->avctx, AV_LOG_WARNING, "no frame decoded. h->stc=%#08X\n", h->stc);
             return FFMAX(0, buf_ptr - buf);
         }
         input_size = (buf_end - buf_ptr) * 8;
@@ -1273,6 +1308,8 @@ static int cavs_decode_frame(AVCodecContext *avctx, AVFrame *rframe,
         case CAVS_START_CODE:
             init_get_bits(&h->gb, buf_ptr, input_size);
             decode_seq_header(h);
+            break;
+        case CAVS_END_CODE:
             break;
         case PIC_I_START_CODE:
             if (!h->got_keyframe) {
@@ -1306,14 +1343,19 @@ static int cavs_decode_frame(AVCodecContext *avctx, AVFrame *rframe,
             }
             break;
         case EXT_START_CODE:
+        // display
             //mpeg_decode_extension(avctx, buf_ptr, input_size);
             break;
         case USER_START_CODE:
             //mpeg_decode_user_data(avctx, buf_ptr, input_size);
             break;
+        case VIDEO_EDIT_CODE: //vec_flag=0
+            break;
         default:
-            if (stc <= SLICE_MAX_START_CODE) {
+        av_log(h->avctx, AV_LOG_INFO, "other start code 0x%08X\n", stc);
+            if (stc >= SLICE_MIN_START_CODE && stc <= SLICE_MAX_START_CODE) {
                 init_get_bits(&h->gb, buf_ptr, input_size);
+                av_log(h->avctx, AV_LOG_INFO, "stc <= SLICE_MAX_START_CODE\n");
                 decode_slice_header(h, &h->gb);
             }
             break;

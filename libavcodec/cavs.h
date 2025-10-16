@@ -35,12 +35,15 @@
 #include "get_bits.h"
 #include "videodsp.h"
 
+#define SLICE_MIN_START_CODE    0x00000100
 #define SLICE_MAX_START_CODE    0x000001af
 #define EXT_START_CODE          0x000001b5
 #define USER_START_CODE         0x000001b2
 #define CAVS_START_CODE         0x000001b0
+#define CAVS_END_CODE           0x000001b1
 #define PIC_I_START_CODE        0x000001b3
 #define PIC_PB_START_CODE       0x000001b6
+#define VIDEO_EDIT_CODE         0x000001b7
 
 #define A_AVAIL                          1
 #define B_AVAIL                          2
