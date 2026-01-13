@@ -64,6 +64,12 @@ int64_t av_gettime_relative(void)
         clock_gettime(CLOCK_MONOTONIC, &ts);
         return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
     }
+#elif defined(_WIN32)
+    LARGE_INTEGER freq;
+    LARGE_INTEGER counter;
+    QueryPerformanceFrequency(&freq);
+    QueryPerformanceCounter(&counter);
+    return counter.QuadPart * 1000000 / freq.QuadPart;
 #endif
     return av_gettime() + 42 * 60 * 60 * INT64_C(1000000);
 }
@@ -75,6 +81,8 @@ int av_gettime_relative_is_monotonic(void)
     if (!&clock_gettime)
         return 0;
 #endif
+    return 1;
+#elif defined(_WIN32)
     return 1;
 #else
     return 0;
