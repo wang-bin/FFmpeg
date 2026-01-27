@@ -40,6 +40,9 @@
 #include "bytestream.h"
 #include "codec_internal.h"
 #include "hap.h"
+#if CONFIG_LIBLZ4
+#include "lz4.h"
+#endif
 #include "snappy.h"
 #include "texturedsp.h"
 #include "thread.h"
@@ -155,6 +158,7 @@ static int hap_parse_frame_header(AVCodecContext *avctx)
     switch (section_type & 0xF0) {
         case HAP_COMP_NONE:
         case HAP_COMP_SNAPPY:
+        case HAP_COMP_LZ4:
             ret = ff_hap_set_chunk_count(ctx, 1, 1);
             if (ret == 0) {
                 ctx->chunks[0].compressor = section_type & 0xF0;
@@ -163,8 +167,10 @@ static int hap_parse_frame_header(AVCodecContext *avctx)
             }
             if (ctx->chunks[0].compressor == HAP_COMP_NONE) {
                 compressorstr = "none";
-            } else {
+            } else if (ctx->chunks[0].compressor == HAP_COMP_SNAPPY) {
                 compressorstr = "snappy";
+            } else if (ctx->chunks[0].compressor == HAP_COMP_LZ4) {
+                compressorstr = "lz4";
             }
             break;
         case HAP_COMP_COMPLEX:
@@ -207,6 +213,12 @@ static int hap_parse_frame_header(AVCodecContext *avctx)
                 return uncompressed_size;
             }
             chunk->uncompressed_size = uncompressed_size;
+        } else if (chunk->compressor == HAP_COMP_LZ4) {
+            /* uncompressed size is stored in first 4 bytes of compressed data */
+            GetByteContext gbc_tmp;
+            bytestream2_init(&gbc_tmp, gbc->buffer + chunk->compressed_offset,
+                             chunk->compressed_size);
+            chunk->uncompressed_size = bytestream2_get_le32(&gbc_tmp);
         } else if (chunk->compressor == HAP_COMP_NONE) {
             chunk->uncompressed_size = chunk->compressed_size;
         } else {
@@ -241,6 +253,17 @@ static int decompress_chunks_thread(AVCodecContext *avctx, void *arg,
              av_log(avctx, AV_LOG_ERROR, "Snappy uncompress error\n");
              return ret;
         }
+#if CONFIG_LIBLZ4
+    } else if (chunk->compressor == HAP_COMP_LZ4) {
+        int ret;
+        ret = LZ4_decompress_safe((const char *)(gbc.buffer + 4), (char *)dst,
+                                  chunk->compressed_size,
+                                  chunk->uncompressed_size);
+        if (ret < 0) {
+             av_log(avctx, AV_LOG_ERROR, "LZ4 uncompress error\n");
+             return AVERROR_INVALIDDATA;
+        }
+#endif
     } else if (chunk->compressor == HAP_COMP_NONE) {
         bytestream2_get_buffer(&gbc, dst, chunk->compressed_size);
     }

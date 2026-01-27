@@ -44,6 +44,10 @@
 #include "hap.h"
 #include "texturedsp.h"
 
+#if CONFIG_LIBLZ4
+#include "lz4.h"
+#endif
+
 #define HAP_MAX_CHUNKS 64
 
 enum HapHeaderLength {
@@ -106,28 +110,44 @@ static int hap_compress_frame(AVCodecContext *avctx, uint8_t *dst)
         }
         chunk->uncompressed_size = ctx->tex_size / ctx->chunk_count;
         chunk->uncompressed_offset = i * chunk->uncompressed_size;
-        chunk->compressed_size = ctx->max_snappy;
+        chunk->compressed_size = ctx->max_compressed;
         chunk_src = ctx->tex_buf + chunk->uncompressed_offset;
         chunk_dst = dst + chunk->compressed_offset;
 
-        /* Compress with snappy too, write directly on packet buffer. */
-        ret = snappy_compress(chunk_src, chunk->uncompressed_size,
-                              chunk_dst, &chunk->compressed_size);
-        if (ret != SNAPPY_OK) {
-            av_log(avctx, AV_LOG_ERROR, "Snappy compress error.\n");
-            return AVERROR_BUG;
+        /* Compress with snappy/lz4 too, write directly on packet buffer. */
+        if (ctx->opt_compressor == HAP_COMP_SNAPPY) {
+            ret = snappy_compress(chunk_src, chunk->uncompressed_size,
+                                  chunk_dst, &chunk->compressed_size);
+            if (ret != SNAPPY_OK) {
+                av_log(avctx, AV_LOG_ERROR, "Snappy compress error.\n");
+                return AVERROR_BUG;
+            }
         }
+#if CONFIG_LIBLZ4
+        else if (ctx->opt_compressor == HAP_COMP_LZ4) {
+            ret = LZ4_compress_fast(chunk_src, chunk_dst + 4,
+                                       chunk->uncompressed_size,
+                                       chunk->compressed_size - 4,
+                                       ctx->opt_lz4_fast);
+            if (ret == 0) {
+                av_log(avctx, AV_LOG_ERROR, "LZ4 compress error.\n");
+                return AVERROR_BUG;
+            }
+            chunk->compressed_size = ret + 4;
+            AV_WL32(chunk_dst, chunk->uncompressed_size);
+        }
+#endif
 
-        /* If there is no gain from snappy, just use the raw texture. */
+        /* If there is no gain from compression, just use the raw texture. */
         if (chunk->compressed_size >= chunk->uncompressed_size) {
             av_log(avctx, AV_LOG_VERBOSE,
-                   "Snappy buffer bigger than uncompressed (%zu >= %zu bytes).\n",
+                   "Compressed buffer bigger than uncompressed (%zu >= %zu bytes).\n",
                    chunk->compressed_size, chunk->uncompressed_size);
             memcpy(chunk_dst, chunk_src, chunk->uncompressed_size);
             chunk->compressor = HAP_COMP_NONE;
             chunk->compressed_size = chunk->uncompressed_size;
         } else {
-            chunk->compressor = HAP_COMP_SNAPPY;
+            chunk->compressor = ctx->opt_compressor;
         }
 
         final_size += chunk->compressed_size;
@@ -196,7 +216,7 @@ static int hap_encode(AVCodecContext *avctx, AVPacket *pkt,
     HapContext *ctx = avctx->priv_data;
     int header_length = hap_header_length(ctx);
     int final_data_size, ret;
-    int pktsize = FFMAX(ctx->tex_size, ctx->max_snappy * ctx->chunk_count) + header_length;
+    int pktsize = FFMAX(ctx->tex_size, ctx->max_compressed * ctx->chunk_count) + header_length;
 
     /* Allocate maximum size packet, shrink later. */
     ret = ff_alloc_packet(avctx, pkt, pktsize);
@@ -217,7 +237,7 @@ static int hap_encode(AVCodecContext *avctx, AVPacket *pkt,
         if (ret < 0)
             return ret;
 
-        /* Compress (using Snappy) the frame */
+        /* Compress (using Snappy/LZ4) the frame */
         final_data_size = hap_compress_frame(avctx, pkt->data + header_length);
         if (final_data_size < 0)
             return final_data_size;
@@ -288,17 +308,26 @@ static av_cold int hap_init(AVCodecContext *avctx)
         /* No benefit chunking uncompressed data */
         corrected_chunk_count = 1;
 
-        ctx->max_snappy = ctx->tex_size;
+        ctx->max_compressed = ctx->tex_size;
         ctx->tex_buf = NULL;
         break;
     case HAP_COMP_SNAPPY:
+    case HAP_COMP_LZ4:
         /* Round the chunk count to divide evenly on DXT block edges */
         corrected_chunk_count = av_clip(ctx->opt_chunk_count, 1, HAP_MAX_CHUNKS);
         while ((ctx->tex_size / ctx->enc.tex_ratio) % corrected_chunk_count != 0) {
             corrected_chunk_count--;
         }
 
-        ctx->max_snappy = snappy_max_compressed_length(ctx->tex_size / corrected_chunk_count);
+        if (ctx->opt_compressor == HAP_COMP_SNAPPY) {
+            ctx->max_compressed = snappy_max_compressed_length(ctx->tex_size / corrected_chunk_count);
+        }
+#if CONFIG_LIBLZ4
+        else if (ctx->opt_compressor == HAP_COMP_LZ4) {
+            ctx->max_compressed = LZ4_compressBound(ctx->tex_size / corrected_chunk_count);
+            ctx->max_compressed += 4; /* for storing uncompressed size */
+        }
+#endif
         ctx->tex_buf = av_malloc(ctx->tex_size);
         if (!ctx->tex_buf) {
             return AVERROR(ENOMEM);
@@ -336,9 +365,11 @@ static const AVOption options[] = {
         { "hap_alpha", "Hap Alpha (DXT5 textures)", 0, AV_OPT_TYPE_CONST, { .i64 = HAP_FMT_RGBADXT5  }, 0, 0, FLAGS, .unit = "format" },
         { "hap_q",     "Hap Q (DXT5-YCoCg textures)", 0, AV_OPT_TYPE_CONST, { .i64 = HAP_FMT_YCOCGDXT5 }, 0, 0, FLAGS, .unit = "format" },
     { "chunks", "chunk count", OFFSET(opt_chunk_count), AV_OPT_TYPE_INT, {.i64 = 1 }, 1, HAP_MAX_CHUNKS, FLAGS, },
-    { "compressor", "second-stage compressor", OFFSET(opt_compressor), AV_OPT_TYPE_INT, { .i64 = HAP_COMP_SNAPPY }, HAP_COMP_NONE, HAP_COMP_SNAPPY, FLAGS, .unit = "compressor" },
+    { "compressor", "second-stage compressor", OFFSET(opt_compressor), AV_OPT_TYPE_INT, { .i64 = HAP_COMP_SNAPPY }, HAP_COMP_NONE, HAP_COMP_LZ4, FLAGS, .unit = "compressor" },
         { "none",       "None", 0, AV_OPT_TYPE_CONST, { .i64 = HAP_COMP_NONE }, 0, 0, FLAGS, .unit = "compressor" },
         { "snappy",     "Snappy", 0, AV_OPT_TYPE_CONST, { .i64 = HAP_COMP_SNAPPY }, 0, 0, FLAGS, .unit = "compressor" },
+        { "lz4",        "LZ4", 0, AV_OPT_TYPE_CONST, {.i64 = HAP_COMP_LZ4 }, 0, 0, FLAGS, "compressor" },
+    { "fast", "Lz4 acceleration", OFFSET(opt_lz4_fast), AV_OPT_TYPE_BOOL, { .i64 = 1 }, 0, 65537, FLAGS, },
     { NULL },
 };
 

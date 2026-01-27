@@ -40,6 +40,7 @@ enum HapCompressor {
     HAP_COMP_NONE    = 0xA0,
     HAP_COMP_SNAPPY  = 0xB0,
     HAP_COMP_COMPLEX = 0xC0,
+    HAP_COMP_LZ4	 = 0xD0,
 };
 
 enum HapSectionType {
@@ -65,6 +66,7 @@ typedef struct HapContext {
     enum HapTextureFormat opt_tex_fmt; /* Texture type (encoder only) */
     int opt_chunk_count; /* User-requested chunk count (encoder only) */
     int opt_compressor; /* User-requested compressor (encoder only) */
+    int opt_lz4_fast; /* LZ4 acceleration factor (encoder only) */
 
     int chunk_count;
     HapChunk *chunks;
@@ -73,7 +75,7 @@ typedef struct HapContext {
     uint8_t *tex_buf;        /* Buffer for compressed texture */
     size_t tex_size;         /* Size of the compressed texture */
 
-    size_t max_snappy;       /* Maximum compressed size for snappy buffer */
+    size_t max_compressed;       /* Maximum size for compressed buffer */
 
     int texture_count;      /* 2 for HAQA, 1 for other version */
     int texture_section_size; /* size of the part of the texture section (for HAPQA) */
