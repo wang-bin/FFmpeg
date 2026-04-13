@@ -176,6 +176,17 @@ typedef struct MJpegDecodeContext {
     const uint8_t *mb_bitmask;
     size_t mb_bitmask_size;
     const AVFrame *reference;
+
+    /* HDR Gain Map (Ultra HDR / ISO 21496-1) */
+    int     hdr_gainmap_present;       ///< set to 1 when hdrgm: XMP namespace was found
+    double  hdr_gm_map_min[3];         ///< GainMapMin per channel (log2)
+    double  hdr_gm_map_max[3];         ///< GainMapMax per channel (log2)
+    double  hdr_gm_gamma[3];           ///< Gamma per channel
+    double  hdr_gm_base_offset[3];     ///< OffsetSDR per channel
+    double  hdr_gm_alt_offset[3];      ///< OffsetHDR per channel
+    double  hdr_gm_base_headroom;      ///< HDRCapacityMin (log2)
+    double  hdr_gm_alt_headroom;       ///< HDRCapacityMax (log2)
+    int     hdr_gm_base_is_hdr;        ///< BaseRenditionIsHDR
 } MJpegDecodeContext;
 
 int ff_mjpeg_build_vlc(VLC *vlc, const uint8_t *bits_table,

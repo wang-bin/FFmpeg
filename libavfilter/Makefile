@@ -197,6 +197,7 @@ OBJS-$(CONFIG_ADDROI_FILTER)                 += vf_addroi.o
 OBJS-$(CONFIG_ALPHAEXTRACT_FILTER)           += vf_extractplanes.o
 OBJS-$(CONFIG_ALPHAMERGE_FILTER)             += vf_alphamerge.o framesync.o
 OBJS-$(CONFIG_AMPLIFY_FILTER)                += vf_amplify.o
+OBJS-$(CONFIG_APPLYGAINMAP_FILTER)           += vf_gainmap.o
 OBJS-$(CONFIG_ASS_FILTER)                    += vf_subtitles.o
 OBJS-$(CONFIG_ATADENOISE_FILTER)             += vf_atadenoise.o
 OBJS-$(CONFIG_AVGBLUR_FILTER)                += vf_avgblur.o

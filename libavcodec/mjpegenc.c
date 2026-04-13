@@ -32,6 +32,9 @@
 
 #include "config_components.h"
 
+#include <string.h>
+
+#include "libavutil/hdr_gainmap.h"
 #include "libavutil/mem.h"
 
 #include "avcodec.h"
@@ -683,6 +686,97 @@ static int mjpeg_get_supported_config(const AVCodecContext *avctx,
     return ff_default_get_supported_config(avctx, codec, config, flags, out, out_num);
 }
 
+/**
+ * Encode the primary JPEG frame (via ff_mpv_encode_picture), then, if an
+ * AVHDRGainMap side data entry is present with a gain_map_frame, encode
+ * the gain map as a secondary JPEG and append it after the primary EOI.
+ */
+static int mjpeg_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
+                              const AVFrame *frame, int *got_packet)
+{
+    const AVFrameSideData *sd;
+    const AVHDRGainMap    *gainmap;
+    AVCodecContext        *gm_ctx   = NULL;
+    AVPacket              *gm_pkt   = NULL;
+    AVFrame               *gm_frame = NULL;
+    const AVCodec         *codec;
+    uint8_t               *dst;
+    int ret;
+
+    /* Encode the primary (SDR) JPEG */
+    ret = ff_mpv_encode_picture(avctx, pkt, frame, got_packet);
+    if (ret < 0 || !*got_packet)
+        return ret;
+
+    /* Check for gain map */
+    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_HDR_GAINMAP);
+    if (!sd || sd->size < sizeof(AVHDRGainMap))
+        return 0;
+    gainmap = (const AVHDRGainMap *)sd->data;
+    if (!gainmap->gain_map_frame)
+        return 0; /* metadata only – nothing to append */
+
+    /* Encode the gain map frame as a standalone JPEG */
+    codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
+    if (!codec) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: MJPEG encoder not available for gain map\n");
+        return 0;
+    }
+
+    gm_ctx = avcodec_alloc_context3(codec);
+    if (!gm_ctx) { ret = AVERROR(ENOMEM); goto done; }
+
+    gm_ctx->width     = gainmap->gain_map_frame->width;
+    gm_ctx->height    = gainmap->gain_map_frame->height;
+    gm_ctx->pix_fmt   = gainmap->gain_map_frame->format;
+    gm_ctx->time_base = (AVRational){ 1, 25 };
+
+    ret = avcodec_open2(gm_ctx, codec, NULL);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: failed to open sub-encoder: %s\n",
+               av_err2str(ret));
+        goto done;
+    }
+
+    gm_frame = av_frame_clone(gainmap->gain_map_frame);
+    if (!gm_frame) { ret = AVERROR(ENOMEM); goto done; }
+
+    gm_pkt = av_packet_alloc();
+    if (!gm_pkt) { ret = AVERROR(ENOMEM); goto done; }
+
+    ret = avcodec_send_frame(gm_ctx, gm_frame);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: failed to send gain map frame: %s\n",
+               av_err2str(ret));
+        goto done;
+    }
+    ret = avcodec_receive_packet(gm_ctx, gm_pkt);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: failed to encode gain map: %s\n",
+               av_err2str(ret));
+        goto done;
+    }
+
+    /* Append the gain map JPEG after the primary packet */
+    ret = av_grow_packet(pkt, gm_pkt->size);
+    if (ret < 0)
+        goto done;
+
+    dst = pkt->data + pkt->size - gm_pkt->size;
+    memcpy(dst, gm_pkt->data, gm_pkt->size);
+    ret = 0;
+
+done:
+    av_packet_free(&gm_pkt);
+    av_frame_free(&gm_frame);
+    avcodec_free_context(&gm_ctx);
+    return ret;
+}
+
 const FFCodec ff_mjpeg_encoder = {
     .p.name         = "mjpeg",
     CODEC_LONG_NAME("MJPEG (Motion JPEG)"),
@@ -690,7 +784,7 @@ const FFCodec ff_mjpeg_encoder = {
     .p.id           = AV_CODEC_ID_MJPEG,
     .priv_data_size = sizeof(MJPEGEncContext),
     .init           = mjpeg_encode_init,
-    FF_CODEC_ENCODE_CB(ff_mpv_encode_picture),
+    FF_CODEC_ENCODE_CB(mjpeg_encode_frame),
     .close          = mjpeg_encode_close,
     .p.capabilities = AV_CODEC_CAP_DR1 |
                       AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS |

@@ -32,9 +32,13 @@
 
 #include "config_components.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 #include "libavutil/attributes.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/avassert.h"
+#include "libavutil/hdr_gainmap.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "avcodec.h"
@@ -1845,6 +1849,237 @@ static int mjpeg_decode_dri(MJpegDecodeContext *s)
     return 0;
 }
 
+/**
+ * Retrieve a single XML attribute value from an XMP buffer.
+ * Looks for patterns like: ns:Name="value" or ns:Name='value'.
+ * Returns the value string (NUL-terminated) in buf, or NULL if not found.
+ */
+static const char *xmp_get_attr(const char *xmp, int xmp_len,
+                                const char *name, char *buf, int buf_len)
+{
+    const char *p   = xmp;
+    const char *end = xmp + xmp_len;
+    int name_len    = strlen(name);
+
+    if (buf_len <= 0)
+        return NULL;
+
+    while (p < end) {
+        p = memchr(p, name[0], end - p);
+        if (!p)
+            break;
+        if (p + name_len + 2 > end) /* need at least name + '=' + '"' */
+            break;
+        if (memcmp(p, name, name_len) == 0) {
+            const char *q = p + name_len;
+            if (*q == '=') {
+                char quote;
+                const char *val;
+                int val_len;
+
+                q++;
+                quote = *q++;
+                if (quote != '"' && quote != '\'') {
+                    p++;
+                    continue;
+                }
+                val = q;
+                while (q < end && *q != quote)
+                    q++;
+                val_len = q - val;
+                if (val_len >= buf_len)
+                    val_len = buf_len - 1;
+                memcpy(buf, val, val_len);
+                buf[val_len] = '\0';
+                return buf;
+            }
+        }
+        p++;
+    }
+    return NULL;
+}
+
+/**
+ * Parse a floating-point XMP attribute value; on success stores val in *out
+ * and returns 1, otherwise returns 0.
+ */
+static int xmp_parse_float(const char *xmp, int xmp_len,
+                           const char *name, double *out)
+{
+    char buf[64];
+    char *end;
+    double v;
+
+    if (!xmp_get_attr(xmp, xmp_len, name, buf, sizeof(buf)))
+        return 0;
+    v = strtod(buf, &end);
+    if (end == buf)
+        return 0;
+    *out = v;
+    return 1;
+}
+
+/**
+ * Initialise s->hdr_gm_* to default values defined by ISO 21496-1.
+ */
+static void hdr_gainmap_set_defaults(MJpegDecodeContext *s)
+{
+    for (int i = 0; i < 3; i++) {
+        s->hdr_gm_map_min[i]    = -1.0;
+        s->hdr_gm_map_max[i]    =  1.0;
+        s->hdr_gm_gamma[i]      =  1.0;
+        s->hdr_gm_base_offset[i]=  1.0 / 64.0;
+        s->hdr_gm_alt_offset[i] =  1.0 / 64.0;
+    }
+    s->hdr_gm_base_headroom = 0.0;
+    s->hdr_gm_alt_headroom  = 1.0;
+    s->hdr_gm_base_is_hdr   = 0;
+}
+
+/**
+ * Parse the hdrgm: namespace attributes from an XMP buffer and populate
+ * the gain-map fields in s.  Sets s->hdr_gainmap_present to 1 on success.
+ */
+static void mjpeg_parse_xmp_gainmap(MJpegDecodeContext *s,
+                                    const char *xmp, int xmp_len)
+{
+    double v;
+    char buf[16];
+
+    /* Require hdrgm namespace declaration */
+    {
+        const char *needle = "hdrgm:";
+        int found = 0;
+        for (int i = 0; i <= xmp_len - 6; i++) {
+            if (memcmp(xmp + i, needle, 6) == 0) { found = 1; break; }
+        }
+        if (!found)
+            return;
+    }
+
+    hdr_gainmap_set_defaults(s);
+
+    /* Single-value attributes (applied to all channels) */
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:GainMapMin", &v)) {
+        s->hdr_gm_map_min[0] = s->hdr_gm_map_min[1] = s->hdr_gm_map_min[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:GainMapMax", &v)) {
+        s->hdr_gm_map_max[0] = s->hdr_gm_map_max[1] = s->hdr_gm_map_max[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:Gamma", &v)) {
+        s->hdr_gm_gamma[0] = s->hdr_gm_gamma[1] = s->hdr_gm_gamma[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:OffsetSDR", &v)) {
+        s->hdr_gm_base_offset[0] = s->hdr_gm_base_offset[1] =
+        s->hdr_gm_base_offset[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:OffsetHDR", &v)) {
+        s->hdr_gm_alt_offset[0] = s->hdr_gm_alt_offset[1] =
+        s->hdr_gm_alt_offset[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:HDRCapacityMin", &v))
+        s->hdr_gm_base_headroom = v;
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:HDRCapacityMax", &v))
+        s->hdr_gm_alt_headroom = v;
+
+    if (xmp_get_attr(xmp, xmp_len, "hdrgm:BaseRenditionIsHDR", buf, sizeof(buf)))
+        s->hdr_gm_base_is_hdr = (buf[0] == 'T' || buf[0] == 't' ||
+                                  buf[0] == '1') ? 1 : 0;
+
+    s->hdr_gainmap_present = 1;
+    av_log(s->avctx, AV_LOG_DEBUG,
+           "HDR gain map XMP: min=%g max=%g gamma=%g offsetSDR=%g offsetHDR=%g "
+           "headroomMin=%g headroomMax=%g baseIsHDR=%d\n",
+           s->hdr_gm_map_min[0], s->hdr_gm_map_max[0], s->hdr_gm_gamma[0],
+           s->hdr_gm_base_offset[0], s->hdr_gm_alt_offset[0],
+           s->hdr_gm_base_headroom, s->hdr_gm_alt_headroom,
+           s->hdr_gm_base_is_hdr);
+}
+
+/**
+ * Decode the gain map JPEG bytes and attach an AVHDRGainMap side data entry
+ * to frame.  The metadata fields are copied from s->hdr_gm_*.
+ */
+static int mjpeg_attach_gainmap(AVCodecContext *avctx, AVFrame *frame,
+                                const uint8_t *gm_data, int gm_size,
+                                MJpegDecodeContext *s)
+{
+    AVCodecContext *gm_ctx  = NULL;
+    AVPacket       *gm_pkt  = NULL;
+    AVFrame        *gm_frame = NULL;
+    AVHDRGainMap   *gainmap = NULL;
+    const AVCodec  *codec;
+    int ret;
+
+    codec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
+    if (!codec) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: MJPEG decoder not available\n");
+        return 0; /* non-fatal */
+    }
+
+    gm_ctx = avcodec_alloc_context3(codec);
+    if (!gm_ctx)
+        return AVERROR(ENOMEM);
+
+    ret = avcodec_open2(gm_ctx, codec, NULL);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: failed to open sub-decoder: %s\n",
+               av_err2str(ret));
+        goto done;
+    }
+
+    gm_pkt = av_packet_alloc();
+    if (!gm_pkt) { ret = AVERROR(ENOMEM); goto done; }
+
+    gm_pkt->data = (uint8_t *)gm_data;
+    gm_pkt->size = gm_size;
+
+    ret = avcodec_send_packet(gm_ctx, gm_pkt);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: failed to send gain map packet: %s\n",
+               av_err2str(ret));
+        goto done;
+    }
+
+    gm_frame = av_frame_alloc();
+    if (!gm_frame) { ret = AVERROR(ENOMEM); goto done; }
+
+    ret = avcodec_receive_frame(gm_ctx, gm_frame);
+    if (ret < 0) {
+        av_log(avctx, AV_LOG_WARNING,
+               "HDR gain map: failed to decode gain map: %s\n",
+               av_err2str(ret));
+        goto done;
+    }
+
+    gainmap = av_hdr_gainmap_create_side_data(frame);
+    if (!gainmap) { ret = AVERROR(ENOMEM); goto done; }
+
+    /* Fill in metadata from XMP */
+    for (int i = 0; i < 3; i++) {
+        gainmap->gain_map_min[i]     = av_d2q(s->hdr_gm_map_min[i],    (1 << 16));
+        gainmap->gain_map_max[i]     = av_d2q(s->hdr_gm_map_max[i],    (1 << 16));
+        gainmap->gamma[i]            = av_d2q(s->hdr_gm_gamma[i],       (1 << 16));
+        gainmap->base_offset[i]      = av_d2q(s->hdr_gm_base_offset[i], (1 << 16));
+        gainmap->alternate_offset[i] = av_d2q(s->hdr_gm_alt_offset[i],  (1 << 16));
+    }
+    gainmap->base_hdr_headroom      = av_d2q(s->hdr_gm_base_headroom, (1 << 16));
+    gainmap->alternate_hdr_headroom = av_d2q(s->hdr_gm_alt_headroom,  (1 << 16));
+    gainmap->base_rendition_is_hdr  = s->hdr_gm_base_is_hdr;
+    gainmap->gain_map_frame         = gm_frame;
+    gm_frame = NULL; /* ownership transferred */
+
+    ret = 0;
+done:
+    av_frame_free(&gm_frame);
+    av_packet_free(&gm_pkt);
+    avcodec_free_context(&gm_ctx);
+    return ret;
+}
+
 static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
 {
     int len, id, i;
@@ -2029,6 +2264,27 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
             }
         }
         goto out;
+    }
+
+    /* XMP metadata (http://ns.adobe.com/xap/1.0/\0) */
+    if (start_code == APP1 && id == AV_RB32("http") && len >= 25) {
+        /* Check remainder of the namespace identifier */
+        static const char xmp_ns[] = "://ns.adobe.com/xap/1.0/";
+        if (bytestream2_get_bytes_left(&s->gB) >= 24 &&
+            !memcmp(s->gB.buffer, xmp_ns, 24)) {
+            bytestream2_skipu(&s->gB, 24); /* skip "://ns.adobe.com/xap/1.0/" */
+            len -= 24;
+            /* skip the null terminator if present */
+            if (len > 0 && bytestream2_peek_byte(&s->gB) == 0) {
+                bytestream2_skipu(&s->gB, 1);
+                len--;
+            }
+            if (len > 0) {
+                const char *xmp = (const char *)s->gB.buffer;
+                mjpeg_parse_xmp_gainmap(s, xmp, len);
+            }
+            goto out;
+        }
     }
 
     /* EXIF metadata */
@@ -2412,6 +2668,7 @@ int ff_mjpeg_decode_frame_from_buf(AVCodecContext *avctx, AVFrame *frame,
     av_exif_free(&s->exif_metadata);
     av_freep(&s->stereo3d);
     s->adobe_transform = -1;
+    s->hdr_gainmap_present = 0;
 
     if (s->iccnum != 0)
         reset_icc_profile(s);
@@ -2882,6 +3139,17 @@ the_end:
         av_exif_free(&s->exif_metadata);
         if (ret < 0)
             av_log(avctx, AV_LOG_WARNING, "couldn't attach EXIF metadata\n");
+    }
+
+    /* HDR Gain Map: look for a secondary JPEG appended after the primary EOI */
+    if (s->hdr_gainmap_present && buf_end - buf_ptr >= 2 &&
+        buf_ptr[0] == 0xFF && buf_ptr[1] == 0xD8) {
+        ret = mjpeg_attach_gainmap(avctx, frame,
+                                   buf_ptr, buf_end - buf_ptr, s);
+        if (ret < 0)
+            av_log(avctx, AV_LOG_WARNING,
+                   "HDR gain map decoding failed: %s\n", av_err2str(ret));
+        s->hdr_gainmap_present = 0;
     }
 
     if (avctx->codec_id != AV_CODEC_ID_SMVJPEG &&

@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "libavutil/hdr_gainmap.h"
 #include "libavutil/pixdesc.h"
 #include "libavutil/pixfmt.h"
 
@@ -159,6 +160,35 @@ int ff_mjpeg_add_icc_profile_size(AVCodecContext *avctx, const AVFrame *frame,
     return 0;
 }
 
+int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
+                               size_t *max_pkt_size)
+{
+    const AVFrameSideData *sd;
+    const AVHDRGainMap *gainmap;
+
+    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_HDR_GAINMAP);
+    if (!sd || sd->size < sizeof(AVHDRGainMap))
+        return 0;
+
+    gainmap = (const AVHDRGainMap *)sd->data;
+
+    /* Reserve space for the XMP APP1 marker (marker + length + ns + body) */
+    *max_pkt_size += 4 + 29 /* xmp_ns incl. \0 */ + 600 /* max XMP body */;
+
+    /* If there is an embedded gain map frame, reserve space for its JPEG */
+    if (gainmap->gain_map_frame) {
+        /* Rough upper bound: width * height * 3 + some overhead */
+        int w = gainmap->gain_map_frame->width;
+        int h = gainmap->gain_map_frame->height;
+        if (w > 0 && h > 0)
+            *max_pkt_size += (size_t)w * h * 3 + 65536;
+        else
+            *max_pkt_size += 131072;
+    }
+
+    return 0;
+}
+
 static void jpeg_put_comments(AVCodecContext *avctx, PutBitContext *p,
                               const AVFrame *frame)
 {
@@ -230,6 +260,57 @@ static void jpeg_put_comments(AVCodecContext *avctx, PutBitContext *p,
         ff_put_string(p, LIBAVCODEC_IDENT, 1);
         size = strlen(LIBAVCODEC_IDENT)+3;
         AV_WB16(ptr, size);
+    }
+
+    /* HDR Gain Map XMP APP1 */
+    sd = av_frame_get_side_data(frame, AV_FRAME_DATA_HDR_GAINMAP);
+    if (sd && sd->size >= sizeof(AVHDRGainMap)) {
+        const AVHDRGainMap *gainmap = (const AVHDRGainMap *)sd->data;
+        /* XMP namespace identifier: "http://ns.adobe.com/xap/1.0/\0" (29 bytes) */
+        static const char xmp_ns[] = "http://ns.adobe.com/xap/1.0/";
+        char xmp_body[512];
+        int xmp_body_len;
+        const char *base_is_hdr = gainmap->base_rendition_is_hdr ? "True" : "False";
+
+        xmp_body_len = snprintf(xmp_body, sizeof(xmp_body),
+            "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+            "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+            "<rdf:Description rdf:about=\"\""
+            " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""
+            " hdrgm:Version=\"1.0\""
+            " hdrgm:GainMapMin=\"%.8g\""
+            " hdrgm:GainMapMax=\"%.8g\""
+            " hdrgm:Gamma=\"%.8g\""
+            " hdrgm:OffsetSDR=\"%.8g\""
+            " hdrgm:OffsetHDR=\"%.8g\""
+            " hdrgm:HDRCapacityMin=\"%.8g\""
+            " hdrgm:HDRCapacityMax=\"%.8g\""
+            " hdrgm:BaseRenditionIsHDR=\"%s\"/>"
+            "</rdf:RDF></x:xmpmeta>"
+            "<?xpacket end=\"w\"?>",
+            av_q2d(gainmap->gain_map_min[0]),
+            av_q2d(gainmap->gain_map_max[0]),
+            av_q2d(gainmap->gamma[0]),
+            av_q2d(gainmap->base_offset[0]),
+            av_q2d(gainmap->alternate_offset[0]),
+            av_q2d(gainmap->base_hdr_headroom),
+            av_q2d(gainmap->alternate_hdr_headroom),
+            base_is_hdr);
+
+        if (xmp_body_len > 0 && xmp_body_len < (int)sizeof(xmp_body)) {
+            int app1_size = 2 /* marker */ + 2 /* length */ +
+                            sizeof(xmp_ns) /* includes \0 */ +
+                            xmp_body_len;
+            flush_put_bits(p);
+            ptr = put_bits_ptr(p);
+            ptr[0] = 0xFF;
+            ptr[1] = APP1;
+            AV_WB16(ptr + 2, app1_size - 2);
+            memcpy(ptr + 4, xmp_ns, sizeof(xmp_ns)); /* incl. null terminator */
+            memcpy(ptr + 4 + sizeof(xmp_ns), xmp_body, xmp_body_len);
+            skip_put_bytes(p, app1_size);
+        }
     }
 
     if (((avctx->pix_fmt == AV_PIX_FMT_YUV420P ||
