@@ -176,6 +176,7 @@ int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
     *max_pkt_size += 4 + 29 /* xmp_ns incl. \0 */ + 600 /* max XMP body */;
 
     /* If there is an embedded gain map frame, reserve space for its JPEG */
+#define GAINMAP_FALLBACK_SIZE 131072
     if (gainmap->gain_map_frame) {
         /* Rough upper bound: width * height * 3 + some overhead */
         int w = gainmap->gain_map_frame->width;
@@ -183,8 +184,9 @@ int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
         if (w > 0 && h > 0)
             *max_pkt_size += (size_t)w * h * 3 + 65536;
         else
-            *max_pkt_size += 131072;
+            *max_pkt_size += GAINMAP_FALLBACK_SIZE;
     }
+#undef GAINMAP_FALLBACK_SIZE
 
     return 0;
 }

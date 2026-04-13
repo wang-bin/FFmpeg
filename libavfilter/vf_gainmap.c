@@ -46,6 +46,9 @@
 #include "formats.h"
 #include "video.h"
 
+/** Minimum meaningful denominator / gamma value before treating as 0. */
+#define GAINMAP_EPSILON 1e-6
+
 typedef struct ApplyGainMapContext {
     const AVClass *class;
 
@@ -208,7 +211,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         double base_hr = av_q2d(gainmap->base_hdr_headroom);
         double alt_hr  = av_q2d(gainmap->alternate_hdr_headroom);
         double denom   = alt_hr - base_hr;
-        W = (denom < 1e-6) ? 1.0f
+        W = (denom < GAINMAP_EPSILON) ? 1.0f
                            : (float)((s->target_headroom - base_hr) / denom);
         W = av_clipf(W, 0.0f, 1.0f);
     }
@@ -219,7 +222,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *in)
         gmin[c] = (float)av_q2d(gainmap->gain_map_min[c]);
         gmax[c] = (float)av_q2d(gainmap->gain_map_max[c]);
         float g = (float)av_q2d(gainmap->gamma[c]);
-        ginv[c] = (g > 1e-6f) ? 1.0f / g : 1.0f;
+        ginv[c] = (g > (float)GAINMAP_EPSILON) ? 1.0f / g : 1.0f;
         boff[c] = (float)av_q2d(gainmap->base_offset[c]);
         aoff[c] = (float)av_q2d(gainmap->alternate_offset[c]);
     }
@@ -301,7 +304,6 @@ static int config_output(AVFilterLink *outlink)
     outlink->h                   = inlink->h;
     outlink->time_base           = inlink->time_base;
     outlink->sample_aspect_ratio = inlink->sample_aspect_ratio;
-    outlink->frame_rate          = inlink->frame_rate;
 
     return 0;
 }
