@@ -35,8 +35,10 @@
 
 #include <stdint.h>
 
+#include "avcodec.h"
 #include "mjpeg.h"
 #include "put_bits.h"
+#include "libavutil/hdr_gainmap.h"
 
 /**
  * Holds JPEG frame data and Huffman table data.
@@ -47,8 +49,7 @@
 enum GainMapMetadataOption {
     GAIN_MAP_METADATA_XMP  = 0, ///< Write XMP/HDRGM metadata (Adobe/Google format, default)
     GAIN_MAP_METADATA_ISO  = 1, ///< Write ISO 21496-1 binary metadata (APP2)
-    GAIN_MAP_METADATA_BOTH = 2, ///< Write both XMP and ISO 21496-1 metadata
-    NB_GAIN_MAP_METADATA   = 3,
+    NB_GAIN_MAP_METADATA   = 2,
 };
 
 typedef struct MJpegContext {
@@ -105,7 +106,19 @@ static inline void put_marker(PutBitContext *p, enum JpegMarker code)
 }
 
 typedef struct MPVEncContext MPVEncContext;
+typedef struct AVPacket AVPacket;
 
 int ff_mjpeg_encode_stuffing(MPVEncContext *s);
+
+/**
+ * Inject a full ISO 21496-1 APP2 metadata segment into a JPEG packet right
+ * after its SOI marker.  Used to embed the complete gain map metadata into
+ * the secondary (gain map) JPEG when encoding in ISO mode.
+ *
+ * @param pkt     JPEG packet to modify (must start with 0xFF 0xD8 SOI)
+ * @param gainmap gain map metadata to encode
+ * @return 0 on success, a negative AVERROR on failure
+ */
+int ff_mjpeg_inject_iso_app2(AVPacket *pkt, const AVHDRGainMap *gainmap);
 
 #endif /* AVCODEC_MJPEGENC_H */

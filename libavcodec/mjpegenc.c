@@ -649,7 +649,7 @@ static int amv_encode_picture(AVCodecContext *avctx, AVPacket *pkt,
 #define OFFSET(x) offsetof(MJPEGEncContext, mjpeg.x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-#define AMV_OPTIONS_OFFSET 8
+#define AMV_OPTIONS_OFFSET 7
 { "huffman", "Huffman table strategy", OFFSET(huffman), AV_OPT_TYPE_INT, { .i64 = HUFFMAN_TABLE_OPTIMAL }, 0, NB_HUFFMAN_TABLE_OPTION - 1, VE, .unit = "huffman" },
     { "default", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = HUFFMAN_TABLE_DEFAULT }, INT_MIN, INT_MAX, VE, .unit = "huffman" },
     { "optimal", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = HUFFMAN_TABLE_OPTIMAL }, INT_MIN, INT_MAX, VE, .unit = "huffman" },
@@ -661,8 +661,6 @@ static const AVOption options[] = {
       0, AV_OPT_TYPE_CONST, { .i64 = GAIN_MAP_METADATA_XMP  }, 0, 0, VE, .unit = "gain_map_metadata" },
     { "iso",  "write gain map metadata in ISO 21496-1 binary APP2 format",
       0, AV_OPT_TYPE_CONST, { .i64 = GAIN_MAP_METADATA_ISO  }, 0, 0, VE, .unit = "gain_map_metadata" },
-    { "both", "write gain map metadata in both XMP and ISO 21496-1 formats",
-      0, AV_OPT_TYPE_CONST, { .i64 = GAIN_MAP_METADATA_BOTH }, 0, 0, VE, .unit = "gain_map_metadata" },
 FF_MPV_COMMON_OPTS
 { NULL},
 };
@@ -770,7 +768,20 @@ static int mjpeg_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         goto done;
     }
 
-    /* Append the gain map JPEG after the primary packet */
+    /* Append the gain map JPEG after the primary packet.
+     * For ISO mode, inject the full ISO 21496-1 APP2 metadata into the
+     * secondary JPEG right after its SOI before appending it. */
+    {
+        MJPEGEncContext *enc_ctx = avctx->priv_data;
+        if (enc_ctx->mjpeg.gain_map_metadata == GAIN_MAP_METADATA_ISO) {
+            int inject_ret = ff_mjpeg_inject_iso_app2(gm_pkt, gainmap);
+            if (inject_ret < 0)
+                av_log(avctx, AV_LOG_WARNING,
+                       "HDR gain map: failed to inject ISO APP2 into secondary JPEG: %s\n",
+                       av_err2str(inject_ret));
+        }
+    }
+
     ret = av_grow_packet(pkt, gm_pkt->size);
     if (ret < 0)
         goto done;

@@ -2022,9 +2022,14 @@ static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
      * the full payload.  A 4-byte payload is the version-only primary marker.
      */
     if (size < 5) {
-        /* Version-only marker: just flag that a gain map is present. */
-        if (size == 4)
+        /* Version-only marker in the primary JPEG: signal that a gain map
+         * is present.  The full metadata will come from the secondary JPEG's
+         * ISO APP2.  Pre-set defaults so that if the secondary has no metadata
+         * (malformed file), reasonable values are still used. */
+        if (size == 4) {
+            hdr_gainmap_set_defaults(s);
             s->hdr_gainmap_present = 1;
+        }
         return;
     }
 

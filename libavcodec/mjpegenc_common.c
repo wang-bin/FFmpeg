@@ -172,12 +172,12 @@ int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
 
     gainmap = (const AVHDRGainMap *)sd->data;
 
-    /* Reserve space for XMP APP1 and/or ISO APP2 markers.
-     * We over-reserve to cover both formats regardless of the actual setting. */
+    /* Reserve space for XMP APP1 and/or ISO APP2 version-only marker.
+     * We over-reserve to cover either format. */
     /* XMP APP1: marker + length + ns (29 bytes) + body */
     *max_pkt_size += 4 + 29 + 600;
-    /* ISO APP2: marker + length + ns (28 bytes) + binary payload (≤ 128 bytes) */
-    *max_pkt_size += 4 + 28 + 128;
+    /* ISO APP2 (version-only in primary): marker + length + ns (28 bytes) + 4 bytes */
+    *max_pkt_size += 4 + 28 + 4;
 
     /* If there is an embedded gain map frame, reserve space for its JPEG */
 #define GAINMAP_FALLBACK_SIZE 131072
@@ -198,7 +198,12 @@ int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
 /**
  * Encode the ISO 21496-1 binary metadata payload (excluding APP2 marker and
  * namespace) into @p buf.  Returns the number of bytes written.
+ *
+ * Maximum payload size (3-channel case):
+ *   5 (hdr: 2+2+1) + 16 (headrooms: 4×4) + 3×40 (10 fields × 4 bytes) = 141
+ * We use 160 to leave a small safety margin.
  */
+#define ISO_GAINMAP_PAYLOAD_MAX 160
 static int write_iso_gainmap_payload(const AVHDRGainMap *gainmap,
                                      uint8_t *buf, int buf_size)
 {
@@ -237,7 +242,7 @@ static int write_iso_gainmap_payload(const AVHDRGainMap *gainmap,
         flags |= 0x04; /* backwardDirection: base is HDR */
 
     /* Worst-case size: 2+2+1 header + 4*4 headrooms + 3*10*4 channel = 125 bytes */
-    if (buf_size < 128)
+    if (buf_size < ISO_GAINMAP_PAYLOAD_MAX)
         return 0;
 
     /* minimum_version = 0 */
@@ -266,6 +271,51 @@ static int write_iso_gainmap_payload(const AVHDRGainMap *gainmap,
     }
 
     return pos;
+}
+
+/**
+ * Inject a full ISO 21496-1 APP2 segment into a JPEG packet right after its
+ * SOI marker.  Called from mjpeg_encode_frame to embed the complete gain map
+ * metadata into the secondary (gain map) JPEG when encoding in ISO mode.
+ */
+int ff_mjpeg_inject_iso_app2(AVPacket *pkt, const AVHDRGainMap *gainmap)
+{
+    /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" (28 bytes) */
+    static const char iso_ns[] = "urn:iso:std:iso:ts:21496:-1";
+    uint8_t iso_payload[ISO_GAINMAP_PAYLOAD_MAX];
+    int iso_payload_len;
+    int app2_block_size;  /* full APP2 block: marker(2) + length(2) + ns + payload */
+    int old_size;
+    int ret;
+
+    if (!pkt || !gainmap)
+        return AVERROR(EINVAL);
+    if (pkt->size < 2 || pkt->data[0] != 0xFF || pkt->data[1] != 0xD8)
+        return AVERROR_INVALIDDATA; /* not a valid JPEG */
+
+    iso_payload_len = write_iso_gainmap_payload(gainmap,
+                                                iso_payload, sizeof(iso_payload));
+    if (iso_payload_len <= 0)
+        return AVERROR(EINVAL);
+
+    app2_block_size = 2 /* FF E2 */ + 2 /* length */ +
+                      (int)sizeof(iso_ns) /* includes \0 */ + iso_payload_len;
+
+    old_size = pkt->size;
+    ret = av_grow_packet(pkt, app2_block_size);
+    if (ret < 0)
+        return ret;
+
+    /* Shift everything after SOI to make room for the APP2 block */
+    memmove(pkt->data + 2 + app2_block_size, pkt->data + 2, old_size - 2);
+
+    /* Write APP2 block immediately after SOI */
+    pkt->data[2] = 0xFF;
+    pkt->data[3] = 0xE2; /* APP2 marker */
+    AV_WB16(pkt->data + 4, app2_block_size - 2); /* length excl. marker bytes */
+    memcpy(pkt->data + 6, iso_ns, sizeof(iso_ns));
+    memcpy(pkt->data + 6 + sizeof(iso_ns), iso_payload, iso_payload_len);
+    return 0;
 }
 
 static void jpeg_put_comments(AVCodecContext *avctx, PutBitContext *p,
@@ -350,7 +400,7 @@ static void jpeg_put_comments(AVCodecContext *avctx, PutBitContext *p,
         int gm_fmt = m ? m->gain_map_metadata : GAIN_MAP_METADATA_XMP;
 
         /* -- XMP / HDRGM APP1 ------------------------------------------- */
-        if (gm_fmt == GAIN_MAP_METADATA_XMP || gm_fmt == GAIN_MAP_METADATA_BOTH) {
+        if (gm_fmt == GAIN_MAP_METADATA_XMP) {
             static const char xmp_ns[] = "http://ns.adobe.com/xap/1.0/";
             char xmp_body[512];
             int xmp_body_len;
@@ -397,27 +447,25 @@ static void jpeg_put_comments(AVCodecContext *avctx, PutBitContext *p,
             }
         }
 
-        /* -- ISO 21496-1 binary APP2 ------------------------------------- */
-        if (gm_fmt == GAIN_MAP_METADATA_ISO || gm_fmt == GAIN_MAP_METADATA_BOTH) {
+        /* -- ISO 21496-1 version-only APP2 (primary image marker) -------- *
+         * Per ISO 21496-1 / Ultra HDR format: the primary JPEG carries a   *
+         * version-only marker (4-byte payload: min_version + writer_version *
+         * both zero).  The full metadata is in the secondary JPEG APP2.    */
+        if (gm_fmt == GAIN_MAP_METADATA_ISO) {
             /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" (28 bytes) */
             static const char iso_ns[] = "urn:iso:std:iso:ts:21496:-1";
-            uint8_t iso_payload[128];
-            int iso_payload_len = write_iso_gainmap_payload(gainmap,
-                                                            iso_payload,
-                                                            sizeof(iso_payload));
-            if (iso_payload_len > 0) {
-                int app2_size = 2 /* marker */ + 2 /* length */ +
-                                sizeof(iso_ns) /* includes \0 */ +
-                                iso_payload_len;
-                flush_put_bits(p);
-                ptr = put_bits_ptr(p);
-                ptr[0] = 0xFF;
-                ptr[1] = APP2;
-                AV_WB16(ptr + 2, app2_size - 2);
-                memcpy(ptr + 4, iso_ns, sizeof(iso_ns)); /* incl. null terminator */
-                memcpy(ptr + 4 + sizeof(iso_ns), iso_payload, iso_payload_len);
-                skip_put_bytes(p, app2_size);
-            }
+            /* version-only payload: min_version(2) + writer_version(2) */
+            static const uint8_t iso_ver[4] = { 0, 0, 0, 0 };
+            int app2_size = 2 /* marker */ + 2 /* length */ +
+                            sizeof(iso_ns) /* includes \0 */ + sizeof(iso_ver);
+            flush_put_bits(p);
+            ptr = put_bits_ptr(p);
+            ptr[0] = 0xFF;
+            ptr[1] = APP2;
+            AV_WB16(ptr + 2, app2_size - 2);
+            memcpy(ptr + 4, iso_ns, sizeof(iso_ns)); /* incl. null terminator */
+            memcpy(ptr + 4 + sizeof(iso_ns), iso_ver, sizeof(iso_ver));
+            skip_put_bytes(p, app2_size);
         }
     }
 
