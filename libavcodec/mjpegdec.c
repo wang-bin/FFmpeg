@@ -2120,164 +2120,6 @@ static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
            s->hdr_gm_base_is_hdr);
 }
 
-/**
- * Scan the raw bytes of a gain-map JPEG for both ISO 21496-1 APP2 and
- * XMP APP1 gain-map metadata, updating the fields in @p s.  ISO metadata
- * takes precedence over XMP if both are found.  Called before creating the
- * AVHDRGainMap so that metadata from the secondary image overrides any
- * metadata from the primary image.
- */
-static void mjpeg_scan_gainmap_in_secondary(MJpegDecodeContext *s,
-                                            const uint8_t *data, int size)
-{
-    /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" = 28 bytes */
-    static const char iso_ns[]  = "urn:iso:std:iso:ts:21496:-1";
-    /* XMP namespace: "http://ns.adobe.com/xap/1.0/\0" = 29 bytes */
-    static const char xmp_ns[]  = "http://ns.adobe.com/xap/1.0/";
-    const int iso_ns_len = sizeof(iso_ns); /* includes \0 terminator */
-    const int xmp_ns_len = sizeof(xmp_ns); /* includes \0 terminator */
-    const uint8_t *p   = data;
-    const uint8_t *end = data + size;
-    int iso_found = 0;
-
-    if (size < 2 || p[0] != 0xFF || p[1] != 0xD8)
-        return; /* not a JPEG */
-    p += 2;
-
-    while (p + 4 <= end) {
-        int seg_len;
-        uint8_t marker;
-        if (p[0] != 0xFF)
-            break;
-        marker = p[1];
-        p += 2;
-
-        if (marker == 0xD9) break; /* EOI */
-        if (marker == 0xD8) continue; /* SOI */
-        if (marker >= 0xD0 && marker <= 0xD7) continue; /* RSTn – no length */
-
-        if (p + 2 > end) break;
-        seg_len = AV_RB16(p); /* length field includes the 2 length bytes */
-        if (seg_len < 2 || p + seg_len > end) break;
-
-        /* APP2 = 0xE2: check for ISO 21496-1 */
-        if (marker == 0xE2 && seg_len >= 2 + iso_ns_len) {
-            const uint8_t *seg_data = p + 2; /* skip length field */
-            int payload_len = seg_len - 2;
-            if (!memcmp(seg_data, iso_ns, iso_ns_len)) {
-                mjpeg_parse_iso_gainmap(s,
-                                        seg_data + iso_ns_len,
-                                        payload_len - iso_ns_len);
-                iso_found = 1;
-            }
-        }
-
-        /* APP1 = 0xE1: check for XMP gain map metadata.
-         * Only use XMP if ISO metadata was not also found (ISO takes precedence). */
-        if (!iso_found && marker == 0xE1 && seg_len >= 2 + xmp_ns_len) {
-            const uint8_t *seg_data = p + 2;
-            int payload_len = seg_len - 2;
-            if (!memcmp(seg_data, xmp_ns, xmp_ns_len)) {
-                /* parse XMP body (after namespace + NUL) */
-                const char *xmp = (const char *)(seg_data + xmp_ns_len);
-                int xmp_len     = payload_len - xmp_ns_len;
-                if (xmp_len > 0)
-                    mjpeg_parse_xmp_gainmap(s, xmp, xmp_len);
-            }
-        }
-
-        p += seg_len;
-    }
-}
-
-/**
- * Decode the gain map JPEG bytes and attach an AVHDRGainMap side data entry
- * to frame.  The metadata fields are copied from s->hdr_gm_*.
- */
-static int mjpeg_attach_gainmap(AVCodecContext *avctx, AVFrame *frame,
-                                const uint8_t *gm_data, int gm_size,
-                                MJpegDecodeContext *s)
-{
-    AVCodecContext *gm_ctx  = NULL;
-    AVPacket       *gm_pkt  = NULL;
-    AVFrame        *gm_frame = NULL;
-    AVHDRGainMap   *gainmap = NULL;
-    const AVCodec  *codec;
-    int ret;
-
-    /* Scan the secondary JPEG for gain-map metadata (ISO APP2 or XMP APP1).
-     * This overrides any metadata from the primary image. */
-    mjpeg_scan_gainmap_in_secondary(s, gm_data, gm_size);
-
-    codec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
-    if (!codec) {
-        av_log(avctx, AV_LOG_WARNING,
-               "HDR gain map: MJPEG decoder not available\n");
-        return 0; /* non-fatal */
-    }
-
-    gm_ctx = avcodec_alloc_context3(codec);
-    if (!gm_ctx)
-        return AVERROR(ENOMEM);
-
-    ret = avcodec_open2(gm_ctx, codec, NULL);
-    if (ret < 0) {
-        av_log(avctx, AV_LOG_WARNING,
-               "HDR gain map: failed to open sub-decoder: %s\n",
-               av_err2str(ret));
-        goto done;
-    }
-
-    gm_pkt = av_packet_alloc();
-    if (!gm_pkt) { ret = AVERROR(ENOMEM); goto done; }
-
-    gm_pkt->data = (uint8_t *)gm_data;
-    gm_pkt->size = gm_size;
-
-    ret = avcodec_send_packet(gm_ctx, gm_pkt);
-    if (ret < 0) {
-        av_log(avctx, AV_LOG_WARNING,
-               "HDR gain map: failed to send gain map packet: %s\n",
-               av_err2str(ret));
-        goto done;
-    }
-
-    gm_frame = av_frame_alloc();
-    if (!gm_frame) { ret = AVERROR(ENOMEM); goto done; }
-
-    ret = avcodec_receive_frame(gm_ctx, gm_frame);
-    if (ret < 0) {
-        av_log(avctx, AV_LOG_WARNING,
-               "HDR gain map: failed to decode gain map: %s\n",
-               av_err2str(ret));
-        goto done;
-    }
-
-    gainmap = av_hdr_gainmap_create_side_data(frame);
-    if (!gainmap) { ret = AVERROR(ENOMEM); goto done; }
-
-    /* Fill in metadata from XMP */
-    for (int i = 0; i < 3; i++) {
-        gainmap->gain_map_min[i]     = av_d2q(s->hdr_gm_map_min[i],    (1 << 16));
-        gainmap->gain_map_max[i]     = av_d2q(s->hdr_gm_map_max[i],    (1 << 16));
-        gainmap->gamma[i]            = av_d2q(s->hdr_gm_gamma[i],       (1 << 16));
-        gainmap->base_offset[i]      = av_d2q(s->hdr_gm_base_offset[i], (1 << 16));
-        gainmap->alternate_offset[i] = av_d2q(s->hdr_gm_alt_offset[i],  (1 << 16));
-    }
-    gainmap->base_hdr_headroom      = av_d2q(s->hdr_gm_base_headroom, (1 << 16));
-    gainmap->alternate_hdr_headroom = av_d2q(s->hdr_gm_alt_headroom,  (1 << 16));
-    gainmap->base_rendition_is_hdr  = s->hdr_gm_base_is_hdr;
-    gainmap->gain_map_frame         = gm_frame;
-    gm_frame = NULL; /* ownership transferred */
-
-    ret = 0;
-done:
-    av_frame_free(&gm_frame);
-    av_packet_free(&gm_pkt);
-    avcodec_free_context(&gm_ctx);
-    return ret;
-}
-
 static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
 {
     int len, id, i;
@@ -2615,9 +2457,10 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
             if (tag != 0xB002) /* only care about MP Entry */
                 continue;
 
-            /* count is the number of MP Entry structures (each 16 bytes);
-             * we need at least 2 (primary + secondary) */
-            if (count < 2 || val_off + count * 16U > (uint32_t)tiff_len)
+            /* For tag B002 (type UNDEFINED = 7), count is the total byte
+             * count of the MP Entry data.  Each entry is 16 bytes, so we
+             * need at least 32 bytes (2 entries: primary + secondary). */
+            if (count < 32 || val_off + count > (uint32_t)tiff_len)
                 break;
 
             mp_entries = tiff + val_off;
@@ -3460,34 +3303,73 @@ the_end:
     }
 
     /* HDR Gain Map: locate and decode the secondary (gain-map) JPEG.
-     * Prefer the MPF-derived pointer if MPF was found in the primary JPEG;
-     * otherwise fall back to the first SOI found right after the primary EOI. */
+     * Prefer the MPF-derived pointer if available (mpf_secondary_size > 0),
+     * otherwise fall back to the first SOI found right after the primary EOI.
+     * We decode the secondary using the same AVCodecContext (avctx) to avoid
+     * the overhead of allocating a separate sub-decoder.  ff_mjpeg_decode_frame_from_buf
+     * resets the context state at entry, then parses the secondary's own APP
+     * segments (XMP/ISO) updating s->hdr_gm_* before we read them below. */
     if (s->hdr_gainmap_present) {
         const uint8_t *gm_ptr  = NULL;
         int            gm_size = 0;
 
-        if (s->mpf_secondary_ptr &&
-            s->mpf_secondary_ptr + 2 <= buf_end &&
+        if (s->mpf_secondary_size > 0 &&
+            s->mpf_secondary_ptr &&
+            s->mpf_secondary_size <= (size_t)(buf_end - s->mpf_secondary_ptr) &&
             s->mpf_secondary_ptr[0] == 0xFF &&
             s->mpf_secondary_ptr[1] == 0xD8) {
-            /* Use MPF-specified location */
+            /* MPF-specified location with exact size */
             gm_ptr  = s->mpf_secondary_ptr;
-            gm_size = (s->mpf_secondary_size > 0 &&
-                       gm_ptr + s->mpf_secondary_size <= buf_end)
-                      ? (int)s->mpf_secondary_size
-                      : (int)(buf_end - gm_ptr);
+            gm_size = (int)s->mpf_secondary_size;
+        } else if (s->mpf_secondary_ptr &&
+                   s->mpf_secondary_ptr + 2 <= buf_end &&
+                   s->mpf_secondary_ptr[0] == 0xFF &&
+                   s->mpf_secondary_ptr[1] == 0xD8) {
+            /* MPF pointer without size: use rest of buffer */
+            gm_ptr  = s->mpf_secondary_ptr;
+            gm_size = (int)(buf_end - gm_ptr);
         } else if (buf_end - buf_ptr >= 2 &&
                    buf_ptr[0] == 0xFF && buf_ptr[1] == 0xD8) {
-            /* Fall back: secondary starts right after the primary EOI */
+            /* Fallback: secondary appended after primary EOI */
             gm_ptr  = buf_ptr;
             gm_size = (int)(buf_end - buf_ptr);
         }
 
         if (gm_ptr) {
-            ret = mjpeg_attach_gainmap(avctx, frame, gm_ptr, gm_size, s);
-            if (ret < 0)
-                av_log(avctx, AV_LOG_WARNING,
-                       "HDR gain map decoding failed: %s\n", av_err2str(ret));
+            AVFrame *gm_frame = av_frame_alloc();
+            if (gm_frame) {
+                int got_gm = 0;
+                /* Decode the secondary JPEG using the same context.
+                 * ff_mjpeg_decode_frame_from_buf resets hdr_gainmap_present and
+                 * MPF fields, then parses the secondary's own APP segments
+                 * (XMP/ISO), updating s->hdr_gm_* with the secondary's metadata.
+                 * If the secondary has no metadata, s->hdr_gm_* retains the
+                 * values set while parsing the primary (fallback). */
+                int gm_ret = ff_mjpeg_decode_frame_from_buf(avctx, gm_frame,
+                                                            &got_gm, NULL,
+                                                            gm_ptr, gm_size);
+                if (gm_ret >= 0 && got_gm) {
+                    AVHDRGainMap *gainmap = av_hdr_gainmap_create_side_data(frame);
+                    if (gainmap) {
+                        for (int i = 0; i < 3; i++) {
+                            gainmap->gain_map_min[i]     = av_d2q(s->hdr_gm_map_min[i],    (1 << 16));
+                            gainmap->gain_map_max[i]     = av_d2q(s->hdr_gm_map_max[i],    (1 << 16));
+                            gainmap->gamma[i]            = av_d2q(s->hdr_gm_gamma[i],       (1 << 16));
+                            gainmap->base_offset[i]      = av_d2q(s->hdr_gm_base_offset[i], (1 << 16));
+                            gainmap->alternate_offset[i] = av_d2q(s->hdr_gm_alt_offset[i],  (1 << 16));
+                        }
+                        gainmap->base_hdr_headroom      = av_d2q(s->hdr_gm_base_headroom, (1 << 16));
+                        gainmap->alternate_hdr_headroom = av_d2q(s->hdr_gm_alt_headroom,  (1 << 16));
+                        gainmap->base_rendition_is_hdr  = s->hdr_gm_base_is_hdr;
+                        gainmap->gain_map_frame         = gm_frame;
+                        gm_frame = NULL; /* ownership transferred */
+                    }
+                } else if (gm_ret < 0) {
+                    av_log(avctx, AV_LOG_WARNING,
+                           "HDR gain map decoding failed: %s\n", av_err2str(gm_ret));
+                }
+                av_frame_free(&gm_frame);
+            }
         }
         s->hdr_gainmap_present = 0;
     }
