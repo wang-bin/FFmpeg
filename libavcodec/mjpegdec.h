@@ -187,6 +187,9 @@ typedef struct MJpegDecodeContext {
     double  hdr_gm_base_headroom;      ///< HDRCapacityMin (log2)
     double  hdr_gm_alt_headroom;       ///< HDRCapacityMax (log2)
     int     hdr_gm_base_is_hdr;        ///< BaseRenditionIsHDR
+    /* MPF (Multi-Picture Format): secondary JPEG location parsed from APP2 MPF */
+    const uint8_t *mpf_secondary_ptr;  ///< pointer to start of secondary JPEG (NULL = not found)
+    uint32_t       mpf_secondary_size; ///< byte size of secondary JPEG per MPF (0 = unknown)
 } MJpegDecodeContext;
 
 int ff_mjpeg_build_vlc(VLC *vlc, const uint8_t *bits_table,

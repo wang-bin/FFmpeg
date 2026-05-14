@@ -2121,19 +2121,24 @@ static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
 }
 
 /**
- * Scan the raw bytes of a gain-map JPEG for an ISO 21496-1 APP2 segment and
- * parse the binary metadata into @p s.  Called before creating the
- * AVHDRGainMap so that ISO metadata from the secondary image overrides any
- * XMP metadata from the primary image.
+ * Scan the raw bytes of a gain-map JPEG for both ISO 21496-1 APP2 and
+ * XMP APP1 gain-map metadata, updating the fields in @p s.  ISO metadata
+ * takes precedence over XMP if both are found.  Called before creating the
+ * AVHDRGainMap so that metadata from the secondary image overrides any
+ * metadata from the primary image.
  */
-static void mjpeg_scan_iso_in_jpeg(MJpegDecodeContext *s,
-                                   const uint8_t *data, int size)
+static void mjpeg_scan_gainmap_in_secondary(MJpegDecodeContext *s,
+                                            const uint8_t *data, int size)
 {
     /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" = 28 bytes */
-    static const char iso_ns[] = "urn:iso:std:iso:ts:21496:-1";
+    static const char iso_ns[]  = "urn:iso:std:iso:ts:21496:-1";
+    /* XMP namespace: "http://ns.adobe.com/xap/1.0/\0" = 29 bytes */
+    static const char xmp_ns[]  = "http://ns.adobe.com/xap/1.0/";
     const int iso_ns_len = sizeof(iso_ns); /* includes \0 terminator */
+    const int xmp_ns_len = sizeof(xmp_ns); /* includes \0 terminator */
     const uint8_t *p   = data;
     const uint8_t *end = data + size;
+    int iso_found = 0;
 
     if (size < 2 || p[0] != 0xFF || p[1] != 0xD8)
         return; /* not a JPEG */
@@ -2155,15 +2160,29 @@ static void mjpeg_scan_iso_in_jpeg(MJpegDecodeContext *s,
         seg_len = AV_RB16(p); /* length field includes the 2 length bytes */
         if (seg_len < 2 || p + seg_len > end) break;
 
-        /* APP2 = 0xE2 */
+        /* APP2 = 0xE2: check for ISO 21496-1 */
         if (marker == 0xE2 && seg_len >= 2 + iso_ns_len) {
             const uint8_t *seg_data = p + 2; /* skip length field */
             int payload_len = seg_len - 2;
             if (!memcmp(seg_data, iso_ns, iso_ns_len)) {
-                /* payload starts after the namespace identifier */
                 mjpeg_parse_iso_gainmap(s,
                                         seg_data + iso_ns_len,
                                         payload_len - iso_ns_len);
+                iso_found = 1;
+            }
+        }
+
+        /* APP1 = 0xE1: check for XMP gain map metadata.
+         * Only use XMP if ISO metadata was not also found (ISO takes precedence). */
+        if (!iso_found && marker == 0xE1 && seg_len >= 2 + xmp_ns_len) {
+            const uint8_t *seg_data = p + 2;
+            int payload_len = seg_len - 2;
+            if (!memcmp(seg_data, xmp_ns, xmp_ns_len)) {
+                /* parse XMP body (after namespace + NUL) */
+                const char *xmp = (const char *)(seg_data + xmp_ns_len);
+                int xmp_len     = payload_len - xmp_ns_len;
+                if (xmp_len > 0)
+                    mjpeg_parse_xmp_gainmap(s, xmp, xmp_len);
             }
         }
 
@@ -2186,9 +2205,9 @@ static int mjpeg_attach_gainmap(AVCodecContext *avctx, AVFrame *frame,
     const AVCodec  *codec;
     int ret;
 
-    /* Scan the secondary JPEG for an ISO 21496-1 APP2 and parse its binary
-     * metadata.  This overrides any XMP metadata from the primary image. */
-    mjpeg_scan_iso_in_jpeg(s, gm_data, gm_size);
+    /* Scan the secondary JPEG for gain-map metadata (ISO APP2 or XMP APP1).
+     * This overrides any metadata from the primary image. */
+    mjpeg_scan_gainmap_in_secondary(s, gm_data, gm_size);
 
     codec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
     if (!codec) {
@@ -2523,6 +2542,110 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
             mjpeg_parse_iso_gainmap(s, s->gB.buffer, len);
             goto out;
         }
+    }
+
+    /* MPF (Multi-Picture Format) APP2: locate the secondary (gain-map) JPEG.
+     * The MPF header starts with "MPF\0" (4 bytes) followed by a TIFF-like
+     * structure.  We parse it to find the secondary image's data offset so
+     * the decoder can jump directly to it instead of searching after EOI.
+     *
+     * Layout of the MPF block (after the 2-byte length field):
+     *   [0..3]  "MPF\0"
+     *   [4..7]  endianness mark: "MM\0\x2A" (big) or "II\x2A\0" (little)
+     *   [8..11] IFD0 offset from the start of the TIFF section (i.e. from [4])
+     *   IFD0 at [4+IFD0_offset]:
+     *     [0..1] tag count
+     *     per tag (12 bytes): tag id, type, count, value-or-offset
+     *       tag 0xB002 (MP Entry): 16 bytes per image
+     *         primary entry (16 bytes): attr(4) + size(4) + offset(4) + dep(4)
+     *         secondary entry (16 bytes): attr(4) + size(4) + offset(4) + dep(4)
+     *           offset is from the byte right after "MPF\0" (the TIFF section)
+     */
+    if (start_code == APP2 && id == AV_RB32("MPF\0") && len >= 12) {
+        const uint8_t *tiff = s->gB.buffer; /* TIFF section starts here */
+        int tiff_len        = len;
+        int big_endian;
+        uint32_t ifd_off, num_tags;
+        uint32_t i_tag;
+        const uint8_t *ifd;
+        /* Offsets within a 16-byte MP Entry structure */
+        enum { MP_ENTRY_SIZE_OFFSET = 4, MP_ENTRY_DATA_OFFSET = 8 };
+        /* Big-endian TIFF marker = "MM\0x00\0x2A"; little-endian = "II\0x2A\0x00" */
+        const uint32_t TIFF_BIG_ENDIAN_MAGIC    = AV_RB32("\x4D\x4D\x00\x2A");
+        const uint32_t TIFF_LITTLE_ENDIAN_MAGIC = AV_RB32("\x49\x49\x2A\x00");
+        uint32_t first_bytes;
+
+        if (tiff_len < 8)
+            goto out;
+
+        /* Endianness: compare first 4 bytes against TIFF header magic values */
+        first_bytes = AV_RB32(tiff);
+        if (first_bytes == TIFF_BIG_ENDIAN_MAGIC)
+            big_endian = 1;
+        else if (first_bytes == TIFF_LITTLE_ENDIAN_MAGIC)
+            big_endian = 0;
+        else
+            goto out; /* unrecognised endianness */
+
+        /* IFD0 offset from start of TIFF section */
+        ifd_off = big_endian ? AV_RB32(tiff + 4) : AV_RL32(tiff + 4);
+        if (ifd_off + 2 > (uint32_t)tiff_len)
+            goto out;
+
+        ifd      = tiff + ifd_off;
+        num_tags = big_endian ? AV_RB16(ifd) : AV_RL16(ifd);
+        ifd     += 2;
+
+        for (i_tag = 0; i_tag < num_tags; i_tag++) {
+            uint16_t tag;
+            uint32_t count, val_off;
+            const uint8_t *mp_entries;
+            const uint8_t *sec_entry;
+            uint32_t sec_data_off, sec_size;
+
+            if ((ifd - tiff) + 12 > tiff_len)
+                break;
+
+            tag     = big_endian ? AV_RB16(ifd) : AV_RL16(ifd);
+            /* type (2) + count (4) = 6 bytes; then value-or-offset (4) */
+            count   = big_endian ? AV_RB32(ifd + 4) : AV_RL32(ifd + 4);
+            val_off = big_endian ? AV_RB32(ifd + 8) : AV_RL32(ifd + 8);
+            ifd    += 12;
+
+            if (tag != 0xB002) /* only care about MP Entry */
+                continue;
+
+            /* count is the number of MP Entry structures (each 16 bytes);
+             * we need at least 2 (primary + secondary) */
+            if (count < 2 || val_off + count * 16U > (uint32_t)tiff_len)
+                break;
+
+            mp_entries = tiff + val_off;
+            /* Primary entry is first 16 bytes; secondary is next 16 bytes */
+            sec_entry    = mp_entries + 16;
+            sec_size     = big_endian ? AV_RB32(sec_entry + MP_ENTRY_SIZE_OFFSET)
+                                      : AV_RL32(sec_entry + MP_ENTRY_SIZE_OFFSET);
+            sec_data_off = big_endian ? AV_RB32(sec_entry + MP_ENTRY_DATA_OFFSET)
+                                      : AV_RL32(sec_entry + MP_ENTRY_DATA_OFFSET);
+
+            /* sec_data_off is measured from the start of the TIFF section
+             * (= tiff pointer).  The secondary JPEG is beyond the MPF block,
+             * so sec_data_off should be larger than tiff_len.
+             * Validate that tiff + sec_data_off + sec_size lies within the overall buffer. */
+            {
+                ptrdiff_t buf_remaining = s->raw_image_buffer_size -
+                                          (tiff - s->raw_image_buffer);
+                if (sec_data_off > 0 &&
+                    (ptrdiff_t)sec_data_off + 2 <= buf_remaining &&
+                    (sec_size == 0 ||
+                     (ptrdiff_t)sec_data_off + sec_size <= buf_remaining)) {
+                    s->mpf_secondary_ptr  = tiff + sec_data_off;
+                    s->mpf_secondary_size = sec_size;
+                }
+            }
+            break;
+        }
+        goto out;
     }
 
     if (start_code == APP2 && id == AV_RB32("ICC_") && len >= 10) {
@@ -2862,6 +2985,8 @@ int ff_mjpeg_decode_frame_from_buf(AVCodecContext *avctx, AVFrame *frame,
     av_freep(&s->stereo3d);
     s->adobe_transform = -1;
     s->hdr_gainmap_present = 0;
+    s->mpf_secondary_ptr   = NULL;
+    s->mpf_secondary_size  = 0;
 
     if (s->iccnum != 0)
         reset_icc_profile(s);
@@ -3334,14 +3459,36 @@ the_end:
             av_log(avctx, AV_LOG_WARNING, "couldn't attach EXIF metadata\n");
     }
 
-    /* HDR Gain Map: look for a secondary JPEG appended after the primary EOI */
-    if (s->hdr_gainmap_present && buf_end - buf_ptr >= 2 &&
-        buf_ptr[0] == 0xFF && buf_ptr[1] == 0xD8) {
-        ret = mjpeg_attach_gainmap(avctx, frame,
-                                   buf_ptr, buf_end - buf_ptr, s);
-        if (ret < 0)
-            av_log(avctx, AV_LOG_WARNING,
-                   "HDR gain map decoding failed: %s\n", av_err2str(ret));
+    /* HDR Gain Map: locate and decode the secondary (gain-map) JPEG.
+     * Prefer the MPF-derived pointer if MPF was found in the primary JPEG;
+     * otherwise fall back to the first SOI found right after the primary EOI. */
+    if (s->hdr_gainmap_present) {
+        const uint8_t *gm_ptr  = NULL;
+        int            gm_size = 0;
+
+        if (s->mpf_secondary_ptr &&
+            s->mpf_secondary_ptr + 2 <= buf_end &&
+            s->mpf_secondary_ptr[0] == 0xFF &&
+            s->mpf_secondary_ptr[1] == 0xD8) {
+            /* Use MPF-specified location */
+            gm_ptr  = s->mpf_secondary_ptr;
+            gm_size = (s->mpf_secondary_size > 0 &&
+                       gm_ptr + s->mpf_secondary_size <= buf_end)
+                      ? (int)s->mpf_secondary_size
+                      : (int)(buf_end - gm_ptr);
+        } else if (buf_end - buf_ptr >= 2 &&
+                   buf_ptr[0] == 0xFF && buf_ptr[1] == 0xD8) {
+            /* Fall back: secondary starts right after the primary EOI */
+            gm_ptr  = buf_ptr;
+            gm_size = (int)(buf_end - buf_ptr);
+        }
+
+        if (gm_ptr) {
+            ret = mjpeg_attach_gainmap(avctx, frame, gm_ptr, gm_size, s);
+            if (ret < 0)
+                av_log(avctx, AV_LOG_WARNING,
+                       "HDR gain map decoding failed: %s\n", av_err2str(ret));
+        }
         s->hdr_gainmap_present = 0;
     }
 
