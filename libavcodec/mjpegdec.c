@@ -2415,7 +2415,7 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
         const uint8_t *tiff_start = s->gB.buffer; /* TIFF section starts here */
         GetByteContext tiff_gb;
         int big_endian;
-        uint32_t ifd_off, num_tags;
+        uint32_t ifd_off, num_tags, i_tag;
 
         bytestream2_init(&tiff_gb, tiff_start, len);
 
@@ -2455,7 +2455,7 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
         num_tags = big_endian ? bytestream2_get_be16u(&tiff_gb)
                               : bytestream2_get_le16u(&tiff_gb);
 
-        for (uint32_t i_tag = 0; i_tag < num_tags; i_tag++) {
+        for (i_tag = 0; i_tag < num_tags; i_tag++) {
             uint16_t tag;
             uint32_t count, val_off;
 

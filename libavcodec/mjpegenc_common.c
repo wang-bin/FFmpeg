@@ -292,14 +292,12 @@ static int inject_app_segment(AVPacket *pkt, uint8_t marker,
     int block_size = 2 + 2 + size;
     int old_size   = pkt->size;
     int ret        = av_grow_packet(pkt, block_size);
-    PutByteContext pb;
     if (ret < 0)
         return ret;
     memmove(pkt->data + 2 + block_size, pkt->data + 2, old_size - 2);
-    bytestream2_init_writer(&pb, pkt->data + 2, 4);
-    bytestream2_put_byteu(&pb, 0xFF);
-    bytestream2_put_byteu(&pb, marker);
-    bytestream2_put_be16u(&pb, block_size - 2); /* length excl. marker */
+    pkt->data[2] = 0xFF;
+    pkt->data[3] = marker;
+    AV_WB16(pkt->data + 4, block_size - 2); /* length excl. marker */
     memcpy(pkt->data + 6, data, size);
     return 0;
 }
@@ -391,18 +389,20 @@ int ff_mjpeg_inject_xmp_app1(AVPacket *pkt, const AVHDRGainMap *gainmap)
 static int find_sos_offset(const uint8_t *data, int size)
 {
     GetByteContext gb;
+    uint8_t marker;
+    int seg_len;
     bytestream2_init(&gb, data, size);
     bytestream2_skipu(&gb, 2); /* skip SOI */
     while (bytestream2_get_bytes_left(&gb) >= 4) {
         if (bytestream2_peek_byteu(&gb) != 0xFF)
             return -1;
         bytestream2_skipu(&gb, 1);
-        uint8_t marker = bytestream2_get_byteu(&gb);
+        marker = bytestream2_get_byteu(&gb);
         if (marker == 0xDA) /* SOS */
             return (int)(gb.buffer - gb.buffer_start) - 2;
         if (marker == 0xD8 || marker == 0xD9) /* SOI/EOI */
             return -1;
-        int seg_len = bytestream2_get_be16u(&gb);
+        seg_len = bytestream2_get_be16u(&gb);
         if (seg_len < 2)
             return -1;
         bytestream2_skip(&gb, seg_len - 2);
