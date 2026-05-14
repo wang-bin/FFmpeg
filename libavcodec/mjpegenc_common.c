@@ -399,7 +399,7 @@ static int find_sos_offset(const uint8_t *data, int size)
         bytestream2_skipu(&gb, 1);
         marker = bytestream2_get_byteu(&gb);
         if (marker == 0xDA) /* SOS */
-            return (int)(gb.buffer - gb.buffer_start) - 2;
+            return bytestream2_tell(&gb) - 2;
         if (marker == 0xD8 || marker == 0xD9) /* SOI/EOI */
             return -1;
         seg_len = bytestream2_get_be16u(&gb);

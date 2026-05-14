@@ -2444,7 +2444,7 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
         /* IFD0 offset from start of TIFF section */
         ifd_off = big_endian ? bytestream2_get_be32u(&tiff_gb)
                              : bytestream2_get_le32u(&tiff_gb);
-        if (ifd_off + 2U > (uint32_t)len)
+        if (ifd_off >= (uint32_t)len)
             goto out;
 
         /* Seek to IFD0 */
