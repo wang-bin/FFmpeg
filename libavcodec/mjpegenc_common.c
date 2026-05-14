@@ -28,6 +28,7 @@
 #include "libavutil/pixfmt.h"
 
 #include "avcodec.h"
+#include "bytestream.h"
 #include "idctdsp.h"
 #include "jpegtables.h"
 #include "put_bits.h"
@@ -218,8 +219,9 @@ static int write_iso_gainmap_payload(const AVHDRGainMap *gainmap,
      *     int32/uint32 gainMapMin N/D, gainMapMax N/D, gainMapGamma N/D,
      *                  baseOffset N/D, alternateOffset N/D
      */
-    int channelCount = 1, pos = 0;
+    int channelCount = 1;
     uint8_t flags = 0;
+    PutByteContext pb;
 
     /* Determine if all three channels are identical */
     for (int c = 1; c < 3; c++) {
@@ -247,32 +249,32 @@ static int write_iso_gainmap_payload(const AVHDRGainMap *gainmap,
     if (buf_size < ISO_GAINMAP_PAYLOAD_MAX)
         return 0;
 
-    /* minimum_version = 0 */
-    AV_WB16(buf + pos, 0); pos += 2;
-    /* writer_version = 0 */
-    AV_WB16(buf + pos, 0); pos += 2;
-    buf[pos++] = flags;
+    bytestream2_init_writer(&pb, buf, buf_size);
+
+    bytestream2_put_be16u(&pb, 0);     /* minimum_version = 0 */
+    bytestream2_put_be16u(&pb, 0);     /* writer_version = 0 */
+    bytestream2_put_byteu(&pb, flags);
 
     /* base / alternate HDR headroom */
-    AV_WB32(buf + pos, (uint32_t) gainmap->base_hdr_headroom.num);      pos += 4;
-    AV_WB32(buf + pos, (uint32_t) gainmap->base_hdr_headroom.den);      pos += 4;
-    AV_WB32(buf + pos, (uint32_t) gainmap->alternate_hdr_headroom.num); pos += 4;
-    AV_WB32(buf + pos, (uint32_t) gainmap->alternate_hdr_headroom.den); pos += 4;
+    bytestream2_put_be32u(&pb, (uint32_t)gainmap->base_hdr_headroom.num);
+    bytestream2_put_be32u(&pb, (uint32_t)gainmap->base_hdr_headroom.den);
+    bytestream2_put_be32u(&pb, (uint32_t)gainmap->alternate_hdr_headroom.num);
+    bytestream2_put_be32u(&pb, (uint32_t)gainmap->alternate_hdr_headroom.den);
 
     for (int c = 0; c < channelCount; c++) {
-        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_min[c].num);      pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_min[c].den);      pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_max[c].num);      pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_max[c].den);      pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->gamma[c].num);             pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->gamma[c].den);             pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->base_offset[c].num);       pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->base_offset[c].den);       pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->alternate_offset[c].num);  pos += 4;
-        AV_WB32(buf + pos, (uint32_t) gainmap->alternate_offset[c].den);  pos += 4;
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->gain_map_min[c].num);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->gain_map_min[c].den);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->gain_map_max[c].num);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->gain_map_max[c].den);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->gamma[c].num);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->gamma[c].den);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->base_offset[c].num);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->base_offset[c].den);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->alternate_offset[c].num);
+        bytestream2_put_be32u(&pb, (uint32_t)gainmap->alternate_offset[c].den);
     }
 
-    return pos;
+    return bytestream2_tell_p(&pb);
 }
 
 /**
@@ -290,12 +292,14 @@ static int inject_app_segment(AVPacket *pkt, uint8_t marker,
     int block_size = 2 + 2 + size;
     int old_size   = pkt->size;
     int ret        = av_grow_packet(pkt, block_size);
+    PutByteContext pb;
     if (ret < 0)
         return ret;
     memmove(pkt->data + 2 + block_size, pkt->data + 2, old_size - 2);
-    pkt->data[2] = 0xFF;
-    pkt->data[3] = marker;
-    AV_WB16(pkt->data + 4, block_size - 2); /* length excl. marker */
+    bytestream2_init_writer(&pb, pkt->data + 2, 4);
+    bytestream2_put_byteu(&pb, 0xFF);
+    bytestream2_put_byteu(&pb, marker);
+    bytestream2_put_be16u(&pb, block_size - 2); /* length excl. marker */
     memcpy(pkt->data + 6, data, size);
     return 0;
 }
@@ -386,19 +390,22 @@ int ff_mjpeg_inject_xmp_app1(AVPacket *pkt, const AVHDRGainMap *gainmap)
  */
 static int find_sos_offset(const uint8_t *data, int size)
 {
-    int pos = 2; /* skip SOI */
-    int seg_len;
-    while (pos + 4 <= size) {
-        if (data[pos] != 0xFF)
+    GetByteContext gb;
+    bytestream2_init(&gb, data, size);
+    bytestream2_skipu(&gb, 2); /* skip SOI */
+    while (bytestream2_get_bytes_left(&gb) >= 4) {
+        if (bytestream2_peek_byteu(&gb) != 0xFF)
             return -1;
-        if (data[pos + 1] == 0xDA) /* SOS */
-            return pos;
-        if (data[pos + 1] == 0xD8 || data[pos + 1] == 0xD9) /* SOI/EOI */
+        bytestream2_skipu(&gb, 1);
+        uint8_t marker = bytestream2_get_byteu(&gb);
+        if (marker == 0xDA) /* SOS */
+            return (int)(gb.buffer - gb.buffer_start) - 2;
+        if (marker == 0xD8 || marker == 0xD9) /* SOI/EOI */
             return -1;
-        seg_len = AV_RB16(data + pos + 2);
+        int seg_len = bytestream2_get_be16u(&gb);
         if (seg_len < 2)
             return -1;
-        pos += 2 + seg_len;
+        bytestream2_skip(&gb, seg_len - 2);
     }
     return -1;
 }
@@ -438,6 +445,7 @@ static int find_sos_offset(const uint8_t *data, int size)
 int ff_mjpeg_inject_mpf(AVPacket *pkt, uint32_t secondary_size)
 {
     uint8_t mpf[MPF_APP2_SIZE];
+    PutByteContext pb;
     int ins_pos;
     uint32_t primary_after, sec_offset;
     int old_size, ret;
@@ -463,46 +471,54 @@ int ff_mjpeg_inject_mpf(AVPacket *pkt, uint32_t secondary_size)
      * during injection — we shift what is AFTER ins_pos). */
     sec_offset = primary_after - (uint32_t)(ins_pos + 8);
 
-    /* --- Build MPF block ------------------------------------------------- */
-    mpf[0] = 0xFF; mpf[1] = 0xE2;           /* APP2 marker */
-    AV_WB16(mpf + 2, MPF_APP2_SIZE - 2);    /* length = 88 */
+    /* --- Build MPF block using PutByteContext ----------------------------- */
+    bytestream2_init_writer(&pb, mpf, MPF_APP2_SIZE);
+
+    bytestream2_put_be16u(&pb, 0xFFE2);               /* APP2 marker */
+    bytestream2_put_be16u(&pb, MPF_APP2_SIZE - 2);    /* length = 88 */
     /* MPF identifier */
-    mpf[4] = 'M'; mpf[5] = 'P'; mpf[6] = 'F'; mpf[7] = '\0';
+    bytestream2_put_byteu(&pb, 'M');
+    bytestream2_put_byteu(&pb, 'P');
+    bytestream2_put_byteu(&pb, 'F');
+    bytestream2_put_byteu(&pb, '\0');
     /* TIFF big-endian header; IFD0 at TIFF offset 8 */
-    mpf[8] = 'M'; mpf[9] = 'M';
-    AV_WB16(mpf + 10, 0x002A);              /* TIFF magic */
-    AV_WB32(mpf + 12, 8);                   /* IFD0 offset from MM */
+    bytestream2_put_be16u(&pb, 0x4D4D);               /* "MM" big-endian */
+    bytestream2_put_be16u(&pb, 0x002A);               /* TIFF magic */
+    bytestream2_put_be32u(&pb, 8);                    /* IFD0 offset from MM */
     /* IFD0 tag count */
-    AV_WB16(mpf + 16, 3);
+    bytestream2_put_be16u(&pb, 3);
     /* Tag 0xB000: MPF Version = "0100" (4 UNDEFINED bytes, inline) */
-    AV_WB16(mpf + 18, 0xB000);
-    AV_WB16(mpf + 20, 7);                   /* type: UNDEFINED */
-    AV_WB32(mpf + 22, 4);                   /* count */
-    mpf[26] = '0'; mpf[27] = '1'; mpf[28] = '0'; mpf[29] = '0';
+    bytestream2_put_be16u(&pb, 0xB000);
+    bytestream2_put_be16u(&pb, 7);                    /* type: UNDEFINED */
+    bytestream2_put_be32u(&pb, 4);                    /* count */
+    bytestream2_put_byteu(&pb, '0');
+    bytestream2_put_byteu(&pb, '1');
+    bytestream2_put_byteu(&pb, '0');
+    bytestream2_put_byteu(&pb, '0');
     /* Tag 0xB001: Number of Images = 2 (1 LONG, inline) */
-    AV_WB16(mpf + 30, 0xB001);
-    AV_WB16(mpf + 32, 4);                   /* type: LONG */
-    AV_WB32(mpf + 34, 1);                   /* count */
-    AV_WB32(mpf + 38, 2);                   /* value: 2 images */
+    bytestream2_put_be16u(&pb, 0xB001);
+    bytestream2_put_be16u(&pb, 4);                    /* type: LONG */
+    bytestream2_put_be32u(&pb, 1);                    /* count */
+    bytestream2_put_be32u(&pb, 2);                    /* value: 2 images */
     /* Tag 0xB002: MP Entry (32 bytes, value offset from MM = 50) */
-    AV_WB16(mpf + 42, 0xB002);
-    AV_WB16(mpf + 44, 7);                   /* type: UNDEFINED */
-    AV_WB32(mpf + 46, 32);                  /* count: 2 × 16 bytes */
-    AV_WB32(mpf + 50, 50);                  /* value offset from MM */
+    bytestream2_put_be16u(&pb, 0xB002);
+    bytestream2_put_be16u(&pb, 7);                    /* type: UNDEFINED */
+    bytestream2_put_be32u(&pb, 32);                   /* count: 2 × 16 bytes */
+    bytestream2_put_be32u(&pb, 50);                   /* value offset from MM */
     /* Next IFD offset = 0 */
-    AV_WB32(mpf + 54, 0);
-    /* Primary MP Entry at mpf[58] (TIFF offset 50 from MM = mpf[8+50]) */
-    AV_WB32(mpf + 58, 0x03000000);          /* attr: primary+representative+JPEG */
-    AV_WB32(mpf + 62, primary_after);       /* individual image size */
-    AV_WB32(mpf + 66, 0);                   /* data offset = 0 for primary */
-    AV_WB16(mpf + 70, 0);                   /* dep image 1 = 0 */
-    AV_WB16(mpf + 72, 0);                   /* dep image 2 = 0 */
-    /* Secondary MP Entry at mpf[74] */
-    AV_WB32(mpf + 74, 0x00000000);          /* attr: supplementary JPEG */
-    AV_WB32(mpf + 78, secondary_size);      /* individual image size */
-    AV_WB32(mpf + 82, sec_offset);          /* data offset */
-    AV_WB16(mpf + 86, 0);                   /* dep image 1 = 0 */
-    AV_WB16(mpf + 88, 0);                   /* dep image 2 = 0 */
+    bytestream2_put_be32u(&pb, 0);
+    /* Primary MP Entry (TIFF offset 50 from MM = mpf[8+50]) */
+    bytestream2_put_be32u(&pb, 0x03000000);           /* attr: primary+representative+JPEG */
+    bytestream2_put_be32u(&pb, primary_after);        /* individual image size */
+    bytestream2_put_be32u(&pb, 0);                    /* data offset = 0 for primary */
+    bytestream2_put_be16u(&pb, 0);                    /* dep image 1 = 0 */
+    bytestream2_put_be16u(&pb, 0);                    /* dep image 2 = 0 */
+    /* Secondary MP Entry */
+    bytestream2_put_be32u(&pb, 0x00000000);           /* attr: supplementary JPEG */
+    bytestream2_put_be32u(&pb, secondary_size);       /* individual image size */
+    bytestream2_put_be32u(&pb, sec_offset);           /* data offset */
+    bytestream2_put_be16u(&pb, 0);                    /* dep image 1 = 0 */
+    bytestream2_put_be16u(&pb, 0);                    /* dep image 2 = 0 */
 
     /* --- Inject into packet ---------------------------------------------- */
     old_size = pkt->size;

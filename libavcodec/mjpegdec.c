@@ -2012,11 +2012,11 @@ static void mjpeg_parse_xmp_gainmap(MJpegDecodeContext *s,
 static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
                                     const uint8_t *data, int size)
 {
-    uint16_t min_version, writer_version;
+    GetByteContext gb;
+    uint16_t min_version;
     uint8_t  flags;
     int      channelCount;
     int      use_common_denom;
-    int      pos = 0;
 
     /* Need at least 2 (min_ver) + 2 (writer_ver) + 1 (flags) = 5 bytes for
      * the full payload.  A 4-byte payload is the version-only primary marker.
@@ -2033,9 +2033,10 @@ static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
         return;
     }
 
-    min_version    = AV_RB16(data);      pos += 2;
-    writer_version = AV_RB16(data + pos); pos += 2;
-    (void)writer_version;
+    bytestream2_init(&gb, data, size);
+
+    min_version = bytestream2_get_be16u(&gb);
+    bytestream2_skipu(&gb, 2); /* writer_version, not used */
 
     if (min_version != 0) {
         av_log(s->avctx, AV_LOG_WARNING,
@@ -2044,7 +2045,7 @@ static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
         return;
     }
 
-    flags        = data[pos++];
+    flags        = bytestream2_get_byteu(&gb);
     channelCount = (flags & 0x01) ? 3 : 1; /* kIsMultiChannelMask */
     s->hdr_gm_base_is_hdr = (flags & 0x04) ? 1 : 0; /* backwardDirection */
 
@@ -2054,45 +2055,52 @@ static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
 
     if (use_common_denom) {
         uint32_t denom;
-        if (pos + 4 + 4 + 4 > size) return;
-        denom = AV_RB32(data + pos); pos += 4;
-        s->hdr_gm_base_headroom = denom ?
-            (double)(int32_t)AV_RB32(data + pos) / denom : 0.0; pos += 4;
-        s->hdr_gm_alt_headroom  = denom ?
-            (double)(int32_t)AV_RB32(data + pos) / denom : 1.0; pos += 4;
+        int32_t v;
+        if (bytestream2_get_bytes_left(&gb) < 3 * 4) return;
+        denom = bytestream2_get_be32u(&gb);
+        v = (int32_t)bytestream2_get_be32u(&gb);
+        s->hdr_gm_base_headroom = denom ? (double)v / denom : 0.0;
+        v = (int32_t)bytestream2_get_be32u(&gb);
+        s->hdr_gm_alt_headroom  = denom ? (double)v / denom : 1.0;
 
         for (int c = 0; c < channelCount; c++) {
-            if (pos + 5 * 4 > size) return;
-            s->hdr_gm_map_min[c]     = denom ? (double)(int32_t) AV_RB32(data+pos) / denom : -1.0; pos += 4;
-            s->hdr_gm_map_max[c]     = denom ? (double)(int32_t) AV_RB32(data+pos) / denom :  1.0; pos += 4;
-            s->hdr_gm_gamma[c]       = denom ? (double)          AV_RB32(data+pos) / denom :  1.0; pos += 4;
-            s->hdr_gm_base_offset[c] = denom ? (double)(int32_t) AV_RB32(data+pos) / denom : 1.0/64.0; pos += 4;
-            s->hdr_gm_alt_offset[c]  = denom ? (double)(int32_t) AV_RB32(data+pos) / denom : 1.0/64.0; pos += 4;
+            uint32_t uv;
+            if (bytestream2_get_bytes_left(&gb) < 5 * 4) return;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_map_min[c]     = denom ? (double)v / denom : -1.0;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_map_max[c]     = denom ? (double)v / denom :  1.0;
+            uv = bytestream2_get_be32u(&gb);
+            s->hdr_gm_gamma[c]       = denom ? (double)uv / denom :  1.0;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_base_offset[c] = denom ? (double)v / denom : 1.0/64.0;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_alt_offset[c]  = denom ? (double)v / denom : 1.0/64.0;
         }
     } else {
         /* Separate N/D for each field */
         uint32_t bN, bD, aN, aD;
-        if (pos + 4 * 4 > size) return;
-        bN = AV_RB32(data + pos); pos += 4;
-        bD = AV_RB32(data + pos); pos += 4;
-        aN = AV_RB32(data + pos); pos += 4;
-        aD = AV_RB32(data + pos); pos += 4;
+        if (bytestream2_get_bytes_left(&gb) < 4 * 4) return;
+        bN = bytestream2_get_be32u(&gb);
+        bD = bytestream2_get_be32u(&gb);
+        aN = bytestream2_get_be32u(&gb);
+        aD = bytestream2_get_be32u(&gb);
         s->hdr_gm_base_headroom = bD ? (double)bN / bD : 0.0;
         s->hdr_gm_alt_headroom  = aD ? (double)aN / aD : 1.0;
 
         for (int c = 0; c < channelCount; c++) {
             uint32_t minN, minD, maxN, maxD, gammaN, gammaD, boffN, boffD, aoffN, aoffD;
-            if (pos + 10 * 4 > size) return;
-            minN   = AV_RB32(data + pos); pos += 4;
-            minD   = AV_RB32(data + pos); pos += 4;
-            maxN   = AV_RB32(data + pos); pos += 4;
-            maxD   = AV_RB32(data + pos); pos += 4;
-            gammaN = AV_RB32(data + pos); pos += 4;
-            gammaD = AV_RB32(data + pos); pos += 4;
-            boffN  = AV_RB32(data + pos); pos += 4;
-            boffD  = AV_RB32(data + pos); pos += 4;
-            aoffN  = AV_RB32(data + pos); pos += 4;
-            aoffD  = AV_RB32(data + pos); pos += 4;
+            if (bytestream2_get_bytes_left(&gb) < 10 * 4) return;
+            minN   = bytestream2_get_be32u(&gb);
+            minD   = bytestream2_get_be32u(&gb);
+            maxN   = bytestream2_get_be32u(&gb);
+            maxD   = bytestream2_get_be32u(&gb);
+            gammaN = bytestream2_get_be32u(&gb);
+            gammaD = bytestream2_get_be32u(&gb);
+            boffN  = bytestream2_get_be32u(&gb);
+            boffD  = bytestream2_get_be32u(&gb);
+            aoffN  = bytestream2_get_be32u(&gb);
+            aoffD  = bytestream2_get_be32u(&gb);
             s->hdr_gm_map_min[c]     = minD   ? (double)(int32_t)minN   / minD   : -1.0;
             s->hdr_gm_map_max[c]     = maxD   ? (double)(int32_t)maxN   / maxD   :  1.0;
             s->hdr_gm_gamma[c]       = gammaD ? (double)          gammaN / gammaD :  1.0;
@@ -2404,55 +2412,63 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
      *           offset is from the byte right after "MPF\0" (the TIFF section)
      */
     if (start_code == APP2 && id == AV_RB32("MPF\0") && len >= 12) {
-        const uint8_t *tiff = s->gB.buffer; /* TIFF section starts here */
-        int tiff_len        = len;
+        const uint8_t *tiff_start = s->gB.buffer; /* TIFF section starts here */
+        GetByteContext tiff_gb;
         int big_endian;
         uint32_t ifd_off, num_tags;
-        uint32_t i_tag;
-        const uint8_t *ifd;
-        /* Offsets within a 16-byte MP Entry structure */
-        enum { MP_ENTRY_SIZE_OFFSET = 4, MP_ENTRY_DATA_OFFSET = 8 };
-        /* Big-endian TIFF marker = "MM\0x00\0x2A"; little-endian = "II\0x2A\0x00" */
-        const uint32_t TIFF_BIG_ENDIAN_MAGIC    = AV_RB32("\x4D\x4D\x00\x2A");
-        const uint32_t TIFF_LITTLE_ENDIAN_MAGIC = AV_RB32("\x49\x49\x2A\x00");
-        uint32_t first_bytes;
 
-        if (tiff_len < 8)
+        bytestream2_init(&tiff_gb, tiff_start, len);
+
+        if (bytestream2_get_bytes_left(&tiff_gb) < 8)
             goto out;
 
-        /* Endianness: compare first 4 bytes against TIFF header magic values */
-        first_bytes = AV_RB32(tiff);
-        if (first_bytes == TIFF_BIG_ENDIAN_MAGIC)
-            big_endian = 1;
-        else if (first_bytes == TIFF_LITTLE_ENDIAN_MAGIC)
-            big_endian = 0;
-        else
-            goto out; /* unrecognised endianness */
+        /* TIFF byte order: "MM" = big-endian, "II" = little-endian */
+        {
+            uint16_t bo = bytestream2_get_be16u(&tiff_gb);
+            if (bo == AV_RB16("MM"))
+                big_endian = 1;
+            else if (bo == AV_RB16("II"))
+                big_endian = 0;
+            else
+                goto out;
+        }
+
+        /* TIFF magic number (0x002A for standard TIFF) */
+        {
+            uint16_t magic = big_endian ? bytestream2_get_be16u(&tiff_gb)
+                                        : bytestream2_get_le16u(&tiff_gb);
+            if (magic != 0x002A)
+                goto out;
+        }
 
         /* IFD0 offset from start of TIFF section */
-        ifd_off = big_endian ? AV_RB32(tiff + 4) : AV_RL32(tiff + 4);
-        if (ifd_off + 2 > (uint32_t)tiff_len)
+        ifd_off = big_endian ? bytestream2_get_be32u(&tiff_gb)
+                             : bytestream2_get_le32u(&tiff_gb);
+        if (ifd_off + 2U > (uint32_t)len)
             goto out;
 
-        ifd      = tiff + ifd_off;
-        num_tags = big_endian ? AV_RB16(ifd) : AV_RL16(ifd);
-        ifd     += 2;
+        /* Seek to IFD0 */
+        bytestream2_init(&tiff_gb, tiff_start + ifd_off, len - ifd_off);
+        if (bytestream2_get_bytes_left(&tiff_gb) < 2)
+            goto out;
 
-        for (i_tag = 0; i_tag < num_tags; i_tag++) {
+        num_tags = big_endian ? bytestream2_get_be16u(&tiff_gb)
+                              : bytestream2_get_le16u(&tiff_gb);
+
+        for (uint32_t i_tag = 0; i_tag < num_tags; i_tag++) {
             uint16_t tag;
             uint32_t count, val_off;
-            const uint8_t *mp_entries;
-            const uint8_t *sec_entry;
-            uint32_t sec_data_off, sec_size;
 
-            if ((ifd - tiff) + 12 > tiff_len)
+            if (bytestream2_get_bytes_left(&tiff_gb) < 12)
                 break;
 
-            tag     = big_endian ? AV_RB16(ifd) : AV_RL16(ifd);
-            /* type (2) + count (4) = 6 bytes; then value-or-offset (4) */
-            count   = big_endian ? AV_RB32(ifd + 4) : AV_RL32(ifd + 4);
-            val_off = big_endian ? AV_RB32(ifd + 8) : AV_RL32(ifd + 8);
-            ifd    += 12;
+            tag     = big_endian ? bytestream2_get_be16u(&tiff_gb)
+                                 : bytestream2_get_le16u(&tiff_gb);
+            bytestream2_skipu(&tiff_gb, 2); /* type (not needed) */
+            count   = big_endian ? bytestream2_get_be32u(&tiff_gb)
+                                 : bytestream2_get_le32u(&tiff_gb);
+            val_off = big_endian ? bytestream2_get_be32u(&tiff_gb)
+                                 : bytestream2_get_le32u(&tiff_gb);
 
             if (tag != 0xB002) /* only care about MP Entry */
                 continue;
@@ -2460,30 +2476,33 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
             /* For tag B002 (type UNDEFINED = 7), count is the total byte
              * count of the MP Entry data.  Each entry is 16 bytes, so we
              * need at least 32 bytes (2 entries: primary + secondary). */
-            if (count < 32 || val_off + count > (uint32_t)tiff_len)
+            if (count < 32 || val_off + count > (uint32_t)len)
                 break;
 
-            mp_entries = tiff + val_off;
-            /* Primary entry is first 16 bytes; secondary is next 16 bytes */
-            sec_entry    = mp_entries + 16;
-            sec_size     = big_endian ? AV_RB32(sec_entry + MP_ENTRY_SIZE_OFFSET)
-                                      : AV_RL32(sec_entry + MP_ENTRY_SIZE_OFFSET);
-            sec_data_off = big_endian ? AV_RB32(sec_entry + MP_ENTRY_DATA_OFFSET)
-                                      : AV_RL32(sec_entry + MP_ENTRY_DATA_OFFSET);
-
-            /* sec_data_off is measured from the start of the TIFF section
-             * (= tiff pointer).  The secondary JPEG is beyond the MPF block,
-             * so sec_data_off should be larger than tiff_len.
-             * Validate that tiff + sec_data_off + sec_size lies within the overall buffer. */
+            /* Read secondary MP Entry (at val_off + 16 in the TIFF section) */
             {
-                ptrdiff_t buf_remaining = s->raw_image_buffer_size -
-                                          (tiff - s->raw_image_buffer);
-                if (sec_data_off > 0 &&
-                    (ptrdiff_t)sec_data_off + 2 <= buf_remaining &&
-                    (sec_size == 0 ||
-                     (ptrdiff_t)sec_data_off + sec_size <= buf_remaining)) {
-                    s->mpf_secondary_ptr  = tiff + sec_data_off;
-                    s->mpf_secondary_size = sec_size;
+                GetByteContext sec_gb;
+                uint32_t sec_size, sec_data_off;
+
+                bytestream2_init(&sec_gb, tiff_start + val_off + 16, 16);
+                bytestream2_skipu(&sec_gb, 4); /* attribute */
+                sec_size     = big_endian ? bytestream2_get_be32u(&sec_gb)
+                                          : bytestream2_get_le32u(&sec_gb);
+                sec_data_off = big_endian ? bytestream2_get_be32u(&sec_gb)
+                                          : bytestream2_get_le32u(&sec_gb);
+
+                /* sec_data_off is measured from the start of the TIFF section.
+                 * Validate that the secondary JPEG lies within the overall buffer. */
+                {
+                    ptrdiff_t buf_remaining = s->raw_image_buffer_size -
+                                              (tiff_start - s->raw_image_buffer);
+                    if (sec_data_off > 0 &&
+                        (ptrdiff_t)sec_data_off + 2 <= buf_remaining &&
+                        (sec_size == 0 ||
+                         (ptrdiff_t)sec_data_off + sec_size <= buf_remaining)) {
+                        s->mpf_secondary_ptr  = tiff_start + sec_data_off;
+                        s->mpf_secondary_size = sec_size;
+                    }
                 }
             }
             break;
