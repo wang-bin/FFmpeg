@@ -649,11 +649,20 @@ static int amv_encode_picture(AVCodecContext *avctx, AVPacket *pkt,
 #define OFFSET(x) offsetof(MJPEGEncContext, mjpeg.x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-#define AMV_OPTIONS_OFFSET 4
+#define AMV_OPTIONS_OFFSET 8
 { "huffman", "Huffman table strategy", OFFSET(huffman), AV_OPT_TYPE_INT, { .i64 = HUFFMAN_TABLE_OPTIMAL }, 0, NB_HUFFMAN_TABLE_OPTION - 1, VE, .unit = "huffman" },
     { "default", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = HUFFMAN_TABLE_DEFAULT }, INT_MIN, INT_MAX, VE, .unit = "huffman" },
     { "optimal", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = HUFFMAN_TABLE_OPTIMAL }, INT_MIN, INT_MAX, VE, .unit = "huffman" },
 { "force_duplicated_matrix", "Always write luma and chroma matrix for mjpeg, useful for rtp streaming.", OFFSET(force_duplicated_matrix), AV_OPT_TYPE_BOOL, {.i64 = 0 }, 0, 1, VE },
+{ "gain_map_metadata", "metadata format for HDR gain map when encoding",
+  OFFSET(gain_map_metadata), AV_OPT_TYPE_INT,
+  { .i64 = GAIN_MAP_METADATA_XMP }, 0, NB_GAIN_MAP_METADATA - 1, VE, .unit = "gain_map_metadata" },
+    { "xmp",  "write gain map metadata in XMP/HDRGM format (Adobe/Google)",
+      0, AV_OPT_TYPE_CONST, { .i64 = GAIN_MAP_METADATA_XMP  }, 0, 0, VE, .unit = "gain_map_metadata" },
+    { "iso",  "write gain map metadata in ISO 21496-1 binary APP2 format",
+      0, AV_OPT_TYPE_CONST, { .i64 = GAIN_MAP_METADATA_ISO  }, 0, 0, VE, .unit = "gain_map_metadata" },
+    { "both", "write gain map metadata in both XMP and ISO 21496-1 formats",
+      0, AV_OPT_TYPE_CONST, { .i64 = GAIN_MAP_METADATA_BOTH }, 0, 0, VE, .unit = "gain_map_metadata" },
 FF_MPV_COMMON_OPTS
 { NULL},
 };

@@ -41,10 +41,22 @@
 /**
  * Holds JPEG frame data and Huffman table data.
  */
+/**
+ * Gain map metadata format option for MJPEG encoding.
+ */
+enum GainMapMetadataOption {
+    GAIN_MAP_METADATA_XMP  = 0, ///< Write XMP/HDRGM metadata (Adobe/Google format, default)
+    GAIN_MAP_METADATA_ISO  = 1, ///< Write ISO 21496-1 binary metadata (APP2)
+    GAIN_MAP_METADATA_BOTH = 2, ///< Write both XMP and ISO 21496-1 metadata
+    NB_GAIN_MAP_METADATA   = 3,
+};
+
 typedef struct MJpegContext {
     int huffman;
     /* Force duplication of mjpeg matrices, useful for rtp streaming */
     int force_duplicated_matrix;
+    /** Gain map metadata format when encoding (GainMapMetadataOption). */
+    int gain_map_metadata;
     //FIXME use array [3] instead of lumi / chroma, for easier addressing
     uint8_t huff_size_dc_luminance[12];     ///< DC luminance Huffman table size.
     uint16_t huff_code_dc_luminance[12];    ///< DC luminance Huffman table codes.

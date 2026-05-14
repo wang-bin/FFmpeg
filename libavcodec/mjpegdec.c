@@ -1997,6 +1997,176 @@ static void mjpeg_parse_xmp_gainmap(MJpegDecodeContext *s,
 }
 
 /**
+ * Parse the ISO 21496-1 binary gain map metadata payload.
+ *
+ * @param s      Decoder context – gain map fields are written here.
+ * @param data   Pointer to the first byte of the binary payload (after the
+ *               ISO namespace identifier and its null terminator).
+ * @param size   Number of bytes in the payload.
+ *
+ * A payload of exactly 4 bytes is the "version-only" marker written by the
+ * primary JPEG.  It just signals that a gain map is present; no per-channel
+ * metadata is extracted.  A payload with >= 5 bytes contains the full
+ * metadata.
+ */
+static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
+                                    const uint8_t *data, int size)
+{
+    uint16_t min_version, writer_version;
+    uint8_t  flags;
+    int      channelCount;
+    int      use_common_denom;
+    int      pos = 0;
+
+    /* Need at least 2 (min_ver) + 2 (writer_ver) + 1 (flags) = 5 bytes for
+     * the full payload.  A 4-byte payload is the version-only primary marker.
+     */
+    if (size < 5) {
+        /* Version-only marker: just flag that a gain map is present. */
+        if (size == 4)
+            s->hdr_gainmap_present = 1;
+        return;
+    }
+
+    min_version    = AV_RB16(data);      pos += 2;
+    writer_version = AV_RB16(data + pos); pos += 2;
+    (void)writer_version;
+
+    if (min_version != 0) {
+        av_log(s->avctx, AV_LOG_WARNING,
+               "HDR gain map: unsupported ISO 21496-1 minimum_version %d; "
+               "skipping ISO metadata\n", min_version);
+        return;
+    }
+
+    flags        = data[pos++];
+    channelCount = (flags & 0x01) ? 3 : 1; /* kIsMultiChannelMask */
+    s->hdr_gm_base_is_hdr = (flags & 0x04) ? 1 : 0; /* backwardDirection */
+
+    use_common_denom = (flags & 0x08) != 0;
+
+    hdr_gainmap_set_defaults(s);
+
+    if (use_common_denom) {
+        uint32_t denom;
+        if (pos + 4 + 4 + 4 > size) return;
+        denom = AV_RB32(data + pos); pos += 4;
+        s->hdr_gm_base_headroom = denom ?
+            (double)(int32_t)AV_RB32(data + pos) / denom : 0.0; pos += 4;
+        s->hdr_gm_alt_headroom  = denom ?
+            (double)(int32_t)AV_RB32(data + pos) / denom : 1.0; pos += 4;
+
+        for (int c = 0; c < channelCount; c++) {
+            if (pos + 5 * 4 > size) return;
+            s->hdr_gm_map_min[c]     = denom ? (double)(int32_t) AV_RB32(data+pos) / denom : -1.0; pos += 4;
+            s->hdr_gm_map_max[c]     = denom ? (double)(int32_t) AV_RB32(data+pos) / denom :  1.0; pos += 4;
+            s->hdr_gm_gamma[c]       = denom ? (double)          AV_RB32(data+pos) / denom :  1.0; pos += 4;
+            s->hdr_gm_base_offset[c] = denom ? (double)(int32_t) AV_RB32(data+pos) / denom : 1.0/64.0; pos += 4;
+            s->hdr_gm_alt_offset[c]  = denom ? (double)(int32_t) AV_RB32(data+pos) / denom : 1.0/64.0; pos += 4;
+        }
+    } else {
+        /* Separate N/D for each field */
+        uint32_t bN, bD, aN, aD;
+        if (pos + 4 * 4 > size) return;
+        bN = AV_RB32(data + pos); pos += 4;
+        bD = AV_RB32(data + pos); pos += 4;
+        aN = AV_RB32(data + pos); pos += 4;
+        aD = AV_RB32(data + pos); pos += 4;
+        s->hdr_gm_base_headroom = bD ? (double)bN / bD : 0.0;
+        s->hdr_gm_alt_headroom  = aD ? (double)aN / aD : 1.0;
+
+        for (int c = 0; c < channelCount; c++) {
+            uint32_t minN, minD, maxN, maxD, gammaN, gammaD, boffN, boffD, aoffN, aoffD;
+            if (pos + 10 * 4 > size) return;
+            minN   = AV_RB32(data + pos); pos += 4;
+            minD   = AV_RB32(data + pos); pos += 4;
+            maxN   = AV_RB32(data + pos); pos += 4;
+            maxD   = AV_RB32(data + pos); pos += 4;
+            gammaN = AV_RB32(data + pos); pos += 4;
+            gammaD = AV_RB32(data + pos); pos += 4;
+            boffN  = AV_RB32(data + pos); pos += 4;
+            boffD  = AV_RB32(data + pos); pos += 4;
+            aoffN  = AV_RB32(data + pos); pos += 4;
+            aoffD  = AV_RB32(data + pos); pos += 4;
+            s->hdr_gm_map_min[c]     = minD   ? (double)(int32_t)minN   / minD   : -1.0;
+            s->hdr_gm_map_max[c]     = maxD   ? (double)(int32_t)maxN   / maxD   :  1.0;
+            s->hdr_gm_gamma[c]       = gammaD ? (double)          gammaN / gammaD :  1.0;
+            s->hdr_gm_base_offset[c] = boffD  ? (double)(int32_t)boffN  / boffD  : 1.0/64.0;
+            s->hdr_gm_alt_offset[c]  = aoffD  ? (double)(int32_t)aoffN  / aoffD  : 1.0/64.0;
+        }
+    }
+
+    /* Replicate channel 0 values into remaining channels (when channelCount == 1) */
+    for (int c = channelCount; c < 3; c++) {
+        s->hdr_gm_map_min[c]     = s->hdr_gm_map_min[0];
+        s->hdr_gm_map_max[c]     = s->hdr_gm_map_max[0];
+        s->hdr_gm_gamma[c]       = s->hdr_gm_gamma[0];
+        s->hdr_gm_base_offset[c] = s->hdr_gm_base_offset[0];
+        s->hdr_gm_alt_offset[c]  = s->hdr_gm_alt_offset[0];
+    }
+
+    s->hdr_gainmap_present = 1;
+    av_log(s->avctx, AV_LOG_DEBUG,
+           "HDR gain map ISO: min=%g max=%g gamma=%g offsetSDR=%g offsetHDR=%g "
+           "headroomMin=%g headroomMax=%g baseIsHDR=%d\n",
+           s->hdr_gm_map_min[0], s->hdr_gm_map_max[0], s->hdr_gm_gamma[0],
+           s->hdr_gm_base_offset[0], s->hdr_gm_alt_offset[0],
+           s->hdr_gm_base_headroom, s->hdr_gm_alt_headroom,
+           s->hdr_gm_base_is_hdr);
+}
+
+/**
+ * Scan the raw bytes of a gain-map JPEG for an ISO 21496-1 APP2 segment and
+ * parse the binary metadata into @p s.  Called before creating the
+ * AVHDRGainMap so that ISO metadata from the secondary image overrides any
+ * XMP metadata from the primary image.
+ */
+static void mjpeg_scan_iso_in_jpeg(MJpegDecodeContext *s,
+                                   const uint8_t *data, int size)
+{
+    /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" = 28 bytes */
+    static const char iso_ns[] = "urn:iso:std:iso:ts:21496:-1";
+    const int iso_ns_len = sizeof(iso_ns); /* includes \0 terminator */
+    const uint8_t *p   = data;
+    const uint8_t *end = data + size;
+
+    if (size < 2 || p[0] != 0xFF || p[1] != 0xD8)
+        return; /* not a JPEG */
+    p += 2;
+
+    while (p + 4 <= end) {
+        int seg_len;
+        uint8_t marker;
+        if (p[0] != 0xFF)
+            break;
+        marker = p[1];
+        p += 2;
+
+        if (marker == 0xD9) break; /* EOI */
+        if (marker == 0xD8) continue; /* SOI */
+        if (marker >= 0xD0 && marker <= 0xD7) continue; /* RSTn – no length */
+
+        if (p + 2 > end) break;
+        seg_len = AV_RB16(p); /* length field includes the 2 length bytes */
+        if (seg_len < 2 || p + seg_len > end) break;
+
+        /* APP2 = 0xE2 */
+        if (marker == 0xE2 && seg_len >= 2 + iso_ns_len) {
+            const uint8_t *seg_data = p + 2; /* skip length field */
+            int payload_len = seg_len - 2;
+            if (!memcmp(seg_data, iso_ns, iso_ns_len)) {
+                /* payload starts after the namespace identifier */
+                mjpeg_parse_iso_gainmap(s,
+                                        seg_data + iso_ns_len,
+                                        payload_len - iso_ns_len);
+            }
+        }
+
+        p += seg_len;
+    }
+}
+
+/**
  * Decode the gain map JPEG bytes and attach an AVHDRGainMap side data entry
  * to frame.  The metadata fields are copied from s->hdr_gm_*.
  */
@@ -2010,6 +2180,10 @@ static int mjpeg_attach_gainmap(AVCodecContext *avctx, AVFrame *frame,
     AVHDRGainMap   *gainmap = NULL;
     const AVCodec  *codec;
     int ret;
+
+    /* Scan the secondary JPEG for an ISO 21496-1 APP2 and parse its binary
+     * metadata.  This overrides any XMP metadata from the primary image. */
+    mjpeg_scan_iso_in_jpeg(s, gm_data, gm_size);
 
     codec = avcodec_find_decoder(AV_CODEC_ID_MJPEG);
     if (!codec) {
@@ -2329,6 +2503,20 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
             */
             if (s->avctx->debug & FF_DEBUG_PICT_INFO)
                 av_log(s->avctx, AV_LOG_INFO, "mjpeg: Apple MJPEG-A header found\n");
+        }
+    }
+
+    /* ISO 21496-1 gain map metadata: APP2 with "urn:iso:std:iso:ts:21496:-1\0" */
+    if (start_code == APP2 && id == AV_RB32("urn:") && len >= 24) {
+        /* Remaining namespace suffix: "iso:std:iso:ts:21496:-1\0" = 24 bytes */
+        static const char iso_ns_suffix[] = "iso:std:iso:ts:21496:-1";
+        if (bytestream2_get_bytes_left(&s->gB) >= 24 &&
+            !memcmp(s->gB.buffer, iso_ns_suffix, 23) &&
+            s->gB.buffer[23] == '\0') {
+            bytestream2_skipu(&s->gB, 24);
+            len -= 24;
+            mjpeg_parse_iso_gainmap(s, s->gB.buffer, len);
+            goto out;
         }
     }
 

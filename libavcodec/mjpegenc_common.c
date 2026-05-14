@@ -172,8 +172,12 @@ int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
 
     gainmap = (const AVHDRGainMap *)sd->data;
 
-    /* Reserve space for the XMP APP1 marker (marker + length + ns + body) */
-    *max_pkt_size += 4 + 29 /* xmp_ns incl. \0 */ + 600 /* max XMP body */;
+    /* Reserve space for XMP APP1 and/or ISO APP2 markers.
+     * We over-reserve to cover both formats regardless of the actual setting. */
+    /* XMP APP1: marker + length + ns (29 bytes) + body */
+    *max_pkt_size += 4 + 29 + 600;
+    /* ISO APP2: marker + length + ns (28 bytes) + binary payload (≤ 128 bytes) */
+    *max_pkt_size += 4 + 28 + 128;
 
     /* If there is an embedded gain map frame, reserve space for its JPEG */
 #define GAINMAP_FALLBACK_SIZE 131072
@@ -191,8 +195,82 @@ int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
     return 0;
 }
 
+/**
+ * Encode the ISO 21496-1 binary metadata payload (excluding APP2 marker and
+ * namespace) into @p buf.  Returns the number of bytes written.
+ */
+static int write_iso_gainmap_payload(const AVHDRGainMap *gainmap,
+                                     uint8_t *buf, int buf_size)
+{
+    /* ISO 21496-1 uses separate denominators (no common-denominator optimisation
+     * here for simplicity).  Fields in the spec:
+     *   uint16 minimum_version, writer_version
+     *   uint8  flags  (bit 0: isMultiChannel, bit 2: backwardDirection)
+     *   uint32 baseHdrHeadroomN/D, alternateHdrHeadroomN/D
+     *   per channel (1 or 3×):
+     *     int32/uint32 gainMapMin N/D, gainMapMax N/D, gainMapGamma N/D,
+     *                  baseOffset N/D, alternateOffset N/D
+     */
+    int channelCount = 1, pos = 0;
+    uint8_t flags = 0;
+
+    /* Determine if all three channels are identical */
+    for (int c = 1; c < 3; c++) {
+        if (gainmap->gain_map_min[c].num    != gainmap->gain_map_min[0].num    ||
+            gainmap->gain_map_min[c].den    != gainmap->gain_map_min[0].den    ||
+            gainmap->gain_map_max[c].num    != gainmap->gain_map_max[0].num    ||
+            gainmap->gain_map_max[c].den    != gainmap->gain_map_max[0].den    ||
+            gainmap->gamma[c].num           != gainmap->gamma[0].num           ||
+            gainmap->gamma[c].den           != gainmap->gamma[0].den           ||
+            gainmap->base_offset[c].num     != gainmap->base_offset[0].num     ||
+            gainmap->base_offset[c].den     != gainmap->base_offset[0].den     ||
+            gainmap->alternate_offset[c].num != gainmap->alternate_offset[0].num ||
+            gainmap->alternate_offset[c].den != gainmap->alternate_offset[0].den) {
+            channelCount = 3;
+            break;
+        }
+    }
+
+    if (channelCount == 3)
+        flags |= 0x01; /* kIsMultiChannelMask */
+    if (gainmap->base_rendition_is_hdr)
+        flags |= 0x04; /* backwardDirection: base is HDR */
+
+    /* Worst-case size: 2+2+1 header + 4*4 headrooms + 3*10*4 channel = 125 bytes */
+    if (buf_size < 128)
+        return 0;
+
+    /* minimum_version = 0 */
+    AV_WB16(buf + pos, 0); pos += 2;
+    /* writer_version = 0 */
+    AV_WB16(buf + pos, 0); pos += 2;
+    buf[pos++] = flags;
+
+    /* base / alternate HDR headroom */
+    AV_WB32(buf + pos, (uint32_t) gainmap->base_hdr_headroom.num);      pos += 4;
+    AV_WB32(buf + pos, (uint32_t) gainmap->base_hdr_headroom.den);      pos += 4;
+    AV_WB32(buf + pos, (uint32_t) gainmap->alternate_hdr_headroom.num); pos += 4;
+    AV_WB32(buf + pos, (uint32_t) gainmap->alternate_hdr_headroom.den); pos += 4;
+
+    for (int c = 0; c < channelCount; c++) {
+        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_min[c].num);      pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_min[c].den);      pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_max[c].num);      pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->gain_map_max[c].den);      pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->gamma[c].num);             pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->gamma[c].den);             pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->base_offset[c].num);       pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->base_offset[c].den);       pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->alternate_offset[c].num);  pos += 4;
+        AV_WB32(buf + pos, (uint32_t) gainmap->alternate_offset[c].den);  pos += 4;
+    }
+
+    return pos;
+}
+
 static void jpeg_put_comments(AVCodecContext *avctx, PutBitContext *p,
-                              const AVFrame *frame)
+                              const AVFrame *frame,
+                              const struct MJpegContext *m)
 {
     const AVFrameSideData *sd = NULL;
     int size;
@@ -264,54 +342,82 @@ static void jpeg_put_comments(AVCodecContext *avctx, PutBitContext *p,
         AV_WB16(ptr, size);
     }
 
-    /* HDR Gain Map XMP APP1 */
+    /* HDR Gain Map metadata */
     sd = av_frame_get_side_data(frame, AV_FRAME_DATA_HDR_GAINMAP);
     if (sd && sd->size >= sizeof(AVHDRGainMap)) {
         const AVHDRGainMap *gainmap = (const AVHDRGainMap *)sd->data;
-        /* XMP namespace identifier: "http://ns.adobe.com/xap/1.0/\0" (29 bytes) */
-        static const char xmp_ns[] = "http://ns.adobe.com/xap/1.0/";
-        char xmp_body[512];
-        int xmp_body_len;
-        const char *base_is_hdr = gainmap->base_rendition_is_hdr ? "True" : "False";
+        /* Default to XMP if no encoder context (e.g. lossless JPEG) */
+        int gm_fmt = m ? m->gain_map_metadata : GAIN_MAP_METADATA_XMP;
 
-        xmp_body_len = snprintf(xmp_body, sizeof(xmp_body),
-            "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
-            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
-            "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
-            "<rdf:Description rdf:about=\"\""
-            " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""
-            " hdrgm:Version=\"1.0\""
-            " hdrgm:GainMapMin=\"%.8g\""
-            " hdrgm:GainMapMax=\"%.8g\""
-            " hdrgm:Gamma=\"%.8g\""
-            " hdrgm:OffsetSDR=\"%.8g\""
-            " hdrgm:OffsetHDR=\"%.8g\""
-            " hdrgm:HDRCapacityMin=\"%.8g\""
-            " hdrgm:HDRCapacityMax=\"%.8g\""
-            " hdrgm:BaseRenditionIsHDR=\"%s\"/>"
-            "</rdf:RDF></x:xmpmeta>"
-            "<?xpacket end=\"w\"?>",
-            av_q2d(gainmap->gain_map_min[0]),
-            av_q2d(gainmap->gain_map_max[0]),
-            av_q2d(gainmap->gamma[0]),
-            av_q2d(gainmap->base_offset[0]),
-            av_q2d(gainmap->alternate_offset[0]),
-            av_q2d(gainmap->base_hdr_headroom),
-            av_q2d(gainmap->alternate_hdr_headroom),
-            base_is_hdr);
+        /* -- XMP / HDRGM APP1 ------------------------------------------- */
+        if (gm_fmt == GAIN_MAP_METADATA_XMP || gm_fmt == GAIN_MAP_METADATA_BOTH) {
+            static const char xmp_ns[] = "http://ns.adobe.com/xap/1.0/";
+            char xmp_body[512];
+            int xmp_body_len;
+            const char *base_is_hdr = gainmap->base_rendition_is_hdr ? "True" : "False";
 
-        if (xmp_body_len > 0 && xmp_body_len < (int)sizeof(xmp_body)) {
-            int app1_size = 2 /* marker */ + 2 /* length */ +
-                            sizeof(xmp_ns) /* includes \0 */ +
-                            xmp_body_len;
-            flush_put_bits(p);
-            ptr = put_bits_ptr(p);
-            ptr[0] = 0xFF;
-            ptr[1] = APP1;
-            AV_WB16(ptr + 2, app1_size - 2);
-            memcpy(ptr + 4, xmp_ns, sizeof(xmp_ns)); /* incl. null terminator */
-            memcpy(ptr + 4 + sizeof(xmp_ns), xmp_body, xmp_body_len);
-            skip_put_bytes(p, app1_size);
+            xmp_body_len = snprintf(xmp_body, sizeof(xmp_body),
+                "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
+                "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+                "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+                "<rdf:Description rdf:about=\"\""
+                " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""
+                " hdrgm:Version=\"1.0\""
+                " hdrgm:GainMapMin=\"%.8g\""
+                " hdrgm:GainMapMax=\"%.8g\""
+                " hdrgm:Gamma=\"%.8g\""
+                " hdrgm:OffsetSDR=\"%.8g\""
+                " hdrgm:OffsetHDR=\"%.8g\""
+                " hdrgm:HDRCapacityMin=\"%.8g\""
+                " hdrgm:HDRCapacityMax=\"%.8g\""
+                " hdrgm:BaseRenditionIsHDR=\"%s\"/>"
+                "</rdf:RDF></x:xmpmeta>"
+                "<?xpacket end=\"w\"?>",
+                av_q2d(gainmap->gain_map_min[0]),
+                av_q2d(gainmap->gain_map_max[0]),
+                av_q2d(gainmap->gamma[0]),
+                av_q2d(gainmap->base_offset[0]),
+                av_q2d(gainmap->alternate_offset[0]),
+                av_q2d(gainmap->base_hdr_headroom),
+                av_q2d(gainmap->alternate_hdr_headroom),
+                base_is_hdr);
+
+            if (xmp_body_len > 0 && xmp_body_len < (int)sizeof(xmp_body)) {
+                int app1_size = 2 /* marker */ + 2 /* length */ +
+                                sizeof(xmp_ns) /* includes \0 */ +
+                                xmp_body_len;
+                flush_put_bits(p);
+                ptr = put_bits_ptr(p);
+                ptr[0] = 0xFF;
+                ptr[1] = APP1;
+                AV_WB16(ptr + 2, app1_size - 2);
+                memcpy(ptr + 4, xmp_ns, sizeof(xmp_ns)); /* incl. null terminator */
+                memcpy(ptr + 4 + sizeof(xmp_ns), xmp_body, xmp_body_len);
+                skip_put_bytes(p, app1_size);
+            }
+        }
+
+        /* -- ISO 21496-1 binary APP2 ------------------------------------- */
+        if (gm_fmt == GAIN_MAP_METADATA_ISO || gm_fmt == GAIN_MAP_METADATA_BOTH) {
+            /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" (28 bytes) */
+            static const char iso_ns[] = "urn:iso:std:iso:ts:21496:-1";
+            uint8_t iso_payload[128];
+            int iso_payload_len = write_iso_gainmap_payload(gainmap,
+                                                            iso_payload,
+                                                            sizeof(iso_payload));
+            if (iso_payload_len > 0) {
+                int app2_size = 2 /* marker */ + 2 /* length */ +
+                                sizeof(iso_ns) /* includes \0 */ +
+                                iso_payload_len;
+                flush_put_bits(p);
+                ptr = put_bits_ptr(p);
+                ptr[0] = 0xFF;
+                ptr[1] = APP2;
+                AV_WB16(ptr + 2, app2_size - 2);
+                memcpy(ptr + 4, iso_ns, sizeof(iso_ns)); /* incl. null terminator */
+                memcpy(ptr + 4 + sizeof(iso_ns), iso_payload, iso_payload_len);
+                skip_put_bytes(p, app2_size);
+            }
         }
     }
 
@@ -375,7 +481,7 @@ void ff_mjpeg_encode_picture_header(AVCodecContext *avctx, PutBitContext *pb,
     if (avctx->codec_id == AV_CODEC_ID_AMV)
         return;
 
-    jpeg_put_comments(avctx, pb, frame);
+    jpeg_put_comments(avctx, pb, frame, m);
 
     chroma_matrix = !lossless && !!memcmp(luma_intra_matrix,
                                           chroma_intra_matrix,
