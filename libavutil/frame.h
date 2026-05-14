@@ -260,6 +260,17 @@ enum AVFrameSideDataType {
      * EXIF metadata, starting with either 49 49 2a 00, or 4d 4d 00 2a.
      */
      AV_FRAME_DATA_EXIF,
+
+    /**
+     * HDR Gain Map metadata and optional decoded gain map image, as defined
+     * by ISO 21496-1 / Ultra HDR.
+     *
+     * The payload is an AVHDRGainMap struct defined in
+     * libavutil/hdr_gainmap.h.  The struct must be allocated with
+     * av_hdr_gainmap_alloc() / av_hdr_gainmap_create_side_data() because its
+     * size is not part of the public ABI.
+     */
+    AV_FRAME_DATA_HDR_GAINMAP,
 };
 
 enum AVActiveFormatDescription {

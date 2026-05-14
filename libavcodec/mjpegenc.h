@@ -35,16 +35,29 @@
 
 #include <stdint.h>
 
+#include "avcodec.h"
 #include "mjpeg.h"
 #include "put_bits.h"
+#include "libavutil/hdr_gainmap.h"
 
 /**
  * Holds JPEG frame data and Huffman table data.
  */
+/**
+ * Gain map metadata format option for MJPEG encoding.
+ */
+enum GainMapMetadataOption {
+    GAIN_MAP_METADATA_XMP  = 0, ///< Write XMP/HDRGM metadata (Adobe/Google format, default)
+    GAIN_MAP_METADATA_ISO  = 1, ///< Write ISO 21496-1 binary metadata (APP2)
+    NB_GAIN_MAP_METADATA   = 2,
+};
+
 typedef struct MJpegContext {
     int huffman;
     /* Force duplication of mjpeg matrices, useful for rtp streaming */
     int force_duplicated_matrix;
+    /** Gain map metadata format when encoding (GainMapMetadataOption). */
+    int gain_map_metadata;
     //FIXME use array [3] instead of lumi / chroma, for easier addressing
     uint8_t huff_size_dc_luminance[12];     ///< DC luminance Huffman table size.
     uint16_t huff_code_dc_luminance[12];    ///< DC luminance Huffman table codes.
@@ -93,7 +106,42 @@ static inline void put_marker(PutBitContext *p, enum JpegMarker code)
 }
 
 typedef struct MPVEncContext MPVEncContext;
+typedef struct AVPacket AVPacket;
 
 int ff_mjpeg_encode_stuffing(MPVEncContext *s);
+
+/**
+ * Inject a full ISO 21496-1 APP2 metadata segment into a JPEG packet right
+ * after its SOI marker.  Used to embed the complete gain map metadata into
+ * the secondary (gain map) JPEG when encoding in ISO mode.
+ *
+ * @param pkt     JPEG packet to modify (must start with 0xFF 0xD8 SOI)
+ * @param gainmap gain map metadata to encode
+ * @return 0 on success, a negative AVERROR on failure
+ */
+int ff_mjpeg_inject_iso_app2(AVPacket *pkt, const AVHDRGainMap *gainmap);
+
+/**
+ * Inject an XMP APP1 gain-map metadata segment into a JPEG packet right after
+ * its SOI marker.  Used to embed XMP metadata into the secondary (gain map)
+ * JPEG when encoding in XMP mode.
+ *
+ * @param pkt     JPEG packet to modify (must start with 0xFF 0xD8 SOI)
+ * @param gainmap gain map metadata to encode
+ * @return 0 on success, a negative AVERROR on failure
+ */
+int ff_mjpeg_inject_xmp_app1(AVPacket *pkt, const AVHDRGainMap *gainmap);
+
+/**
+ * Inject a Multi-Picture Format (MPF) APP2 segment into the primary JPEG
+ * packet right before its SOS marker.  The MPF encodes the sizes and offsets
+ * needed to locate the appended secondary (gain-map) JPEG.
+ *
+ * @param pkt            primary JPEG packet (modified in place)
+ * @param secondary_size total byte size of the secondary JPEG (after any
+ *                       metadata injection into it)
+ * @return 0 on success, a negative AVERROR on failure
+ */
+int ff_mjpeg_inject_mpf(AVPacket *pkt, uint32_t secondary_size);
 
 #endif /* AVCODEC_MJPEGENC_H */

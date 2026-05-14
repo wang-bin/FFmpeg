@@ -32,9 +32,13 @@
 
 #include "config_components.h"
 
+#include <stdlib.h>
+#include <string.h>
+
 #include "libavutil/attributes.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/avassert.h"
+#include "libavutil/hdr_gainmap.h"
 #include "libavutil/mem.h"
 #include "libavutil/opt.h"
 #include "avcodec.h"
@@ -1845,6 +1849,285 @@ static int mjpeg_decode_dri(MJpegDecodeContext *s)
     return 0;
 }
 
+/**
+ * Retrieve a single XML attribute value from an XMP buffer.
+ * Looks for patterns like: ns:Name="value" or ns:Name='value'.
+ * Returns the value string (NUL-terminated) in buf, or NULL if not found.
+ */
+static const char *xmp_get_attr(const char *xmp, int xmp_len,
+                                const char *name, char *buf, int buf_len)
+{
+    const char *p   = xmp;
+    const char *end = xmp + xmp_len;
+    int name_len    = strlen(name);
+
+    if (buf_len <= 0)
+        return NULL;
+
+    while (p < end) {
+        p = memchr(p, name[0], end - p);
+        if (!p)
+            break;
+        if (p + name_len + 2 > end) /* need at least name + '=' + '"' */
+            break;
+        if (memcmp(p, name, name_len) == 0) {
+            const char *q = p + name_len;
+            if (*q == '=') {
+                char quote;
+                const char *val;
+                int val_len;
+
+                q++;
+                quote = *q++;
+                if (quote != '"' && quote != '\'') {
+                    p++;
+                    continue;
+                }
+                val = q;
+                while (q < end && *q != quote)
+                    q++;
+                val_len = q - val;
+                if (val_len >= buf_len)
+                    val_len = buf_len - 1;
+                memcpy(buf, val, val_len);
+                buf[val_len] = '\0';
+                return buf;
+            }
+        }
+        p++;
+    }
+    return NULL;
+}
+
+/**
+ * Parse a floating-point XMP attribute value; on success stores val in *out
+ * and returns 1, otherwise returns 0.
+ */
+static int xmp_parse_float(const char *xmp, int xmp_len,
+                           const char *name, double *out)
+{
+    char buf[64];
+    char *end;
+    double v;
+
+    if (!xmp_get_attr(xmp, xmp_len, name, buf, sizeof(buf)))
+        return 0;
+    v = strtod(buf, &end);
+    if (end == buf)
+        return 0;
+    *out = v;
+    return 1;
+}
+
+/**
+ * Initialise s->hdr_gm_* to default values defined by ISO 21496-1.
+ */
+static void hdr_gainmap_set_defaults(MJpegDecodeContext *s)
+{
+    for (int i = 0; i < 3; i++) {
+        s->hdr_gm_map_min[i]    = -1.0;
+        s->hdr_gm_map_max[i]    =  1.0;
+        s->hdr_gm_gamma[i]      =  1.0;
+        s->hdr_gm_base_offset[i]=  1.0 / 64.0;
+        s->hdr_gm_alt_offset[i] =  1.0 / 64.0;
+    }
+    s->hdr_gm_base_headroom = 0.0;
+    s->hdr_gm_alt_headroom  = 1.0;
+    s->hdr_gm_base_is_hdr   = 0;
+}
+
+/**
+ * Parse the hdrgm: namespace attributes from an XMP buffer and populate
+ * the gain-map fields in s.  Sets s->hdr_gainmap_present to 1 on success.
+ */
+static void mjpeg_parse_xmp_gainmap(MJpegDecodeContext *s,
+                                    const char *xmp, int xmp_len)
+{
+    double v;
+    char buf[16];
+
+    /* Require hdrgm namespace declaration */
+    {
+        const char *needle = "hdrgm:";
+        int found = 0;
+        for (int i = 0; i <= xmp_len - 6; i++) {
+            if (memcmp(xmp + i, needle, 6) == 0) { found = 1; break; }
+        }
+        if (!found)
+            return;
+    }
+
+    hdr_gainmap_set_defaults(s);
+
+    /* Single-value attributes (applied to all channels) */
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:GainMapMin", &v)) {
+        s->hdr_gm_map_min[0] = s->hdr_gm_map_min[1] = s->hdr_gm_map_min[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:GainMapMax", &v)) {
+        s->hdr_gm_map_max[0] = s->hdr_gm_map_max[1] = s->hdr_gm_map_max[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:Gamma", &v)) {
+        s->hdr_gm_gamma[0] = s->hdr_gm_gamma[1] = s->hdr_gm_gamma[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:OffsetSDR", &v)) {
+        s->hdr_gm_base_offset[0] = s->hdr_gm_base_offset[1] =
+        s->hdr_gm_base_offset[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:OffsetHDR", &v)) {
+        s->hdr_gm_alt_offset[0] = s->hdr_gm_alt_offset[1] =
+        s->hdr_gm_alt_offset[2] = v;
+    }
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:HDRCapacityMin", &v))
+        s->hdr_gm_base_headroom = v;
+    if (xmp_parse_float(xmp, xmp_len, "hdrgm:HDRCapacityMax", &v))
+        s->hdr_gm_alt_headroom = v;
+
+    if (xmp_get_attr(xmp, xmp_len, "hdrgm:BaseRenditionIsHDR", buf, sizeof(buf)))
+        s->hdr_gm_base_is_hdr = (buf[0] == 'T' || buf[0] == 't' ||
+                                  buf[0] == '1') ? 1 : 0;
+
+    s->hdr_gainmap_present = 1;
+    av_log(s->avctx, AV_LOG_DEBUG,
+           "HDR gain map XMP: min=%g max=%g gamma=%g offsetSDR=%g offsetHDR=%g "
+           "headroomMin=%g headroomMax=%g baseIsHDR=%d\n",
+           s->hdr_gm_map_min[0], s->hdr_gm_map_max[0], s->hdr_gm_gamma[0],
+           s->hdr_gm_base_offset[0], s->hdr_gm_alt_offset[0],
+           s->hdr_gm_base_headroom, s->hdr_gm_alt_headroom,
+           s->hdr_gm_base_is_hdr);
+}
+
+/**
+ * Parse the ISO 21496-1 binary gain map metadata payload.
+ *
+ * @param s      Decoder context – gain map fields are written here.
+ * @param data   Pointer to the first byte of the binary payload (after the
+ *               ISO namespace identifier and its null terminator).
+ * @param size   Number of bytes in the payload.
+ *
+ * A payload of exactly 4 bytes is the "version-only" marker written by the
+ * primary JPEG.  It just signals that a gain map is present; no per-channel
+ * metadata is extracted.  A payload with >= 5 bytes contains the full
+ * metadata.
+ */
+static void mjpeg_parse_iso_gainmap(MJpegDecodeContext *s,
+                                    const uint8_t *data, int size)
+{
+    GetByteContext gb;
+    uint16_t min_version;
+    uint8_t  flags;
+    int      channelCount;
+    int      use_common_denom;
+
+    /* Need at least 2 (min_ver) + 2 (writer_ver) + 1 (flags) = 5 bytes for
+     * the full payload.  A 4-byte payload is the version-only primary marker.
+     */
+    if (size < 5) {
+        /* Version-only marker in the primary JPEG: signal that a gain map
+         * is present.  The full metadata will come from the secondary JPEG's
+         * ISO APP2.  Pre-set defaults so that if the secondary has no metadata
+         * (malformed file), reasonable values are still used. */
+        if (size == 4) {
+            hdr_gainmap_set_defaults(s);
+            s->hdr_gainmap_present = 1;
+        }
+        return;
+    }
+
+    bytestream2_init(&gb, data, size);
+
+    min_version = bytestream2_get_be16u(&gb);
+    bytestream2_skipu(&gb, 2); /* writer_version, not used */
+
+    if (min_version != 0) {
+        av_log(s->avctx, AV_LOG_WARNING,
+               "HDR gain map: unsupported ISO 21496-1 minimum_version %d; "
+               "skipping ISO metadata\n", min_version);
+        return;
+    }
+
+    flags        = bytestream2_get_byteu(&gb);
+    channelCount = (flags & 0x01) ? 3 : 1; /* kIsMultiChannelMask */
+    s->hdr_gm_base_is_hdr = (flags & 0x04) ? 1 : 0; /* backwardDirection */
+
+    use_common_denom = (flags & 0x08) != 0;
+
+    hdr_gainmap_set_defaults(s);
+
+    if (use_common_denom) {
+        uint32_t denom;
+        int32_t v;
+        if (bytestream2_get_bytes_left(&gb) < 3 * 4) return;
+        denom = bytestream2_get_be32u(&gb);
+        v = (int32_t)bytestream2_get_be32u(&gb);
+        s->hdr_gm_base_headroom = denom ? (double)v / denom : 0.0;
+        v = (int32_t)bytestream2_get_be32u(&gb);
+        s->hdr_gm_alt_headroom  = denom ? (double)v / denom : 1.0;
+
+        for (int c = 0; c < channelCount; c++) {
+            uint32_t uv;
+            if (bytestream2_get_bytes_left(&gb) < 5 * 4) return;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_map_min[c]     = denom ? (double)v / denom : -1.0;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_map_max[c]     = denom ? (double)v / denom :  1.0;
+            uv = bytestream2_get_be32u(&gb);
+            s->hdr_gm_gamma[c]       = denom ? (double)uv / denom :  1.0;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_base_offset[c] = denom ? (double)v / denom : 1.0/64.0;
+            v  = (int32_t)bytestream2_get_be32u(&gb);
+            s->hdr_gm_alt_offset[c]  = denom ? (double)v / denom : 1.0/64.0;
+        }
+    } else {
+        /* Separate N/D for each field */
+        uint32_t bN, bD, aN, aD;
+        if (bytestream2_get_bytes_left(&gb) < 4 * 4) return;
+        bN = bytestream2_get_be32u(&gb);
+        bD = bytestream2_get_be32u(&gb);
+        aN = bytestream2_get_be32u(&gb);
+        aD = bytestream2_get_be32u(&gb);
+        s->hdr_gm_base_headroom = bD ? (double)bN / bD : 0.0;
+        s->hdr_gm_alt_headroom  = aD ? (double)aN / aD : 1.0;
+
+        for (int c = 0; c < channelCount; c++) {
+            uint32_t minN, minD, maxN, maxD, gammaN, gammaD, boffN, boffD, aoffN, aoffD;
+            if (bytestream2_get_bytes_left(&gb) < 10 * 4) return;
+            minN   = bytestream2_get_be32u(&gb);
+            minD   = bytestream2_get_be32u(&gb);
+            maxN   = bytestream2_get_be32u(&gb);
+            maxD   = bytestream2_get_be32u(&gb);
+            gammaN = bytestream2_get_be32u(&gb);
+            gammaD = bytestream2_get_be32u(&gb);
+            boffN  = bytestream2_get_be32u(&gb);
+            boffD  = bytestream2_get_be32u(&gb);
+            aoffN  = bytestream2_get_be32u(&gb);
+            aoffD  = bytestream2_get_be32u(&gb);
+            s->hdr_gm_map_min[c]     = minD   ? (double)(int32_t)minN   / minD   : -1.0;
+            s->hdr_gm_map_max[c]     = maxD   ? (double)(int32_t)maxN   / maxD   :  1.0;
+            s->hdr_gm_gamma[c]       = gammaD ? (double)          gammaN / gammaD :  1.0;
+            s->hdr_gm_base_offset[c] = boffD  ? (double)(int32_t)boffN  / boffD  : 1.0/64.0;
+            s->hdr_gm_alt_offset[c]  = aoffD  ? (double)(int32_t)aoffN  / aoffD  : 1.0/64.0;
+        }
+    }
+
+    /* Replicate channel 0 values into remaining channels (when channelCount == 1) */
+    for (int c = channelCount; c < 3; c++) {
+        s->hdr_gm_map_min[c]     = s->hdr_gm_map_min[0];
+        s->hdr_gm_map_max[c]     = s->hdr_gm_map_max[0];
+        s->hdr_gm_gamma[c]       = s->hdr_gm_gamma[0];
+        s->hdr_gm_base_offset[c] = s->hdr_gm_base_offset[0];
+        s->hdr_gm_alt_offset[c]  = s->hdr_gm_alt_offset[0];
+    }
+
+    s->hdr_gainmap_present = 1;
+    av_log(s->avctx, AV_LOG_DEBUG,
+           "HDR gain map ISO: min=%g max=%g gamma=%g offsetSDR=%g offsetHDR=%g "
+           "headroomMin=%g headroomMax=%g baseIsHDR=%d\n",
+           s->hdr_gm_map_min[0], s->hdr_gm_map_max[0], s->hdr_gm_gamma[0],
+           s->hdr_gm_base_offset[0], s->hdr_gm_alt_offset[0],
+           s->hdr_gm_base_headroom, s->hdr_gm_alt_headroom,
+           s->hdr_gm_base_is_hdr);
+}
+
 static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
 {
     int len, id, i;
@@ -2031,6 +2314,27 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
         goto out;
     }
 
+    /* XMP metadata (http://ns.adobe.com/xap/1.0/\0) */
+    if (start_code == APP1 && id == AV_RB32("http") && len >= 25) {
+        /* Check remainder of the namespace identifier */
+        static const char xmp_ns[] = "://ns.adobe.com/xap/1.0/";
+        if (bytestream2_get_bytes_left(&s->gB) >= 24 &&
+            !memcmp(s->gB.buffer, xmp_ns, 24)) {
+            bytestream2_skipu(&s->gB, 24); /* skip "://ns.adobe.com/xap/1.0/" */
+            len -= 24;
+            /* skip the null terminator if present */
+            if (len > 0 && bytestream2_peek_byte(&s->gB) == 0) {
+                bytestream2_skipu(&s->gB, 1);
+                len--;
+            }
+            if (len > 0) {
+                const char *xmp = (const char *)s->gB.buffer;
+                mjpeg_parse_xmp_gainmap(s, xmp, len);
+            }
+            goto out;
+        }
+    }
+
     /* EXIF metadata */
     if (start_code == APP1 && id == AV_RB32("Exif") && len >= 2) {
         int ret;
@@ -2074,6 +2378,136 @@ static int mjpeg_decode_app(MJpegDecodeContext *s, int start_code)
             if (s->avctx->debug & FF_DEBUG_PICT_INFO)
                 av_log(s->avctx, AV_LOG_INFO, "mjpeg: Apple MJPEG-A header found\n");
         }
+    }
+
+    /* ISO 21496-1 gain map metadata: APP2 with "urn:iso:std:iso:ts:21496:-1\0" */
+    if (start_code == APP2 && id == AV_RB32("urn:") && len >= 24) {
+        /* Remaining namespace suffix: "iso:std:iso:ts:21496:-1\0" = 24 bytes */
+        static const char iso_ns_suffix[] = "iso:std:iso:ts:21496:-1";
+        if (bytestream2_get_bytes_left(&s->gB) >= 24 &&
+            !memcmp(s->gB.buffer, iso_ns_suffix, 23) &&
+            s->gB.buffer[23] == '\0') {
+            bytestream2_skipu(&s->gB, 24);
+            len -= 24;
+            mjpeg_parse_iso_gainmap(s, s->gB.buffer, len);
+            goto out;
+        }
+    }
+
+    /* MPF (Multi-Picture Format) APP2: locate the secondary (gain-map) JPEG.
+     * The MPF header starts with "MPF\0" (4 bytes) followed by a TIFF-like
+     * structure.  We parse it to find the secondary image's data offset so
+     * the decoder can jump directly to it instead of searching after EOI.
+     *
+     * Layout of the MPF block (after the 2-byte length field):
+     *   [0..3]  "MPF\0"
+     *   [4..7]  endianness mark: "MM\0\x2A" (big) or "II\x2A\0" (little)
+     *   [8..11] IFD0 offset from the start of the TIFF section (i.e. from [4])
+     *   IFD0 at [4+IFD0_offset]:
+     *     [0..1] tag count
+     *     per tag (12 bytes): tag id, type, count, value-or-offset
+     *       tag 0xB002 (MP Entry): 16 bytes per image
+     *         primary entry (16 bytes): attr(4) + size(4) + offset(4) + dep(4)
+     *         secondary entry (16 bytes): attr(4) + size(4) + offset(4) + dep(4)
+     *           offset is from the byte right after "MPF\0" (the TIFF section)
+     */
+    if (start_code == APP2 && id == AV_RB32("MPF\0") && len >= 12) {
+        const uint8_t *tiff_start = s->gB.buffer; /* TIFF section starts here */
+        GetByteContext tiff_gb;
+        int big_endian;
+        uint32_t ifd_off, num_tags, i_tag;
+
+        bytestream2_init(&tiff_gb, tiff_start, len);
+
+        if (bytestream2_get_bytes_left(&tiff_gb) < 8)
+            goto out;
+
+        /* TIFF byte order: "MM" = big-endian, "II" = little-endian */
+        {
+            uint16_t bo = bytestream2_get_be16u(&tiff_gb);
+            if (bo == AV_RB16("MM"))
+                big_endian = 1;
+            else if (bo == AV_RB16("II"))
+                big_endian = 0;
+            else
+                goto out;
+        }
+
+        /* TIFF magic number (0x002A for standard TIFF) */
+        {
+            uint16_t magic = big_endian ? bytestream2_get_be16u(&tiff_gb)
+                                        : bytestream2_get_le16u(&tiff_gb);
+            if (magic != 0x002A)
+                goto out;
+        }
+
+        /* IFD0 offset from start of TIFF section */
+        ifd_off = big_endian ? bytestream2_get_be32u(&tiff_gb)
+                             : bytestream2_get_le32u(&tiff_gb);
+        if (ifd_off >= (uint32_t)len)
+            goto out;
+
+        /* Seek to IFD0 */
+        bytestream2_init(&tiff_gb, tiff_start + ifd_off, len - ifd_off);
+        if (bytestream2_get_bytes_left(&tiff_gb) < 2)
+            goto out;
+
+        num_tags = big_endian ? bytestream2_get_be16u(&tiff_gb)
+                              : bytestream2_get_le16u(&tiff_gb);
+
+        for (i_tag = 0; i_tag < num_tags; i_tag++) {
+            uint16_t tag;
+            uint32_t count, val_off;
+
+            if (bytestream2_get_bytes_left(&tiff_gb) < 12)
+                break;
+
+            tag     = big_endian ? bytestream2_get_be16u(&tiff_gb)
+                                 : bytestream2_get_le16u(&tiff_gb);
+            bytestream2_skipu(&tiff_gb, 2); /* type (not needed) */
+            count   = big_endian ? bytestream2_get_be32u(&tiff_gb)
+                                 : bytestream2_get_le32u(&tiff_gb);
+            val_off = big_endian ? bytestream2_get_be32u(&tiff_gb)
+                                 : bytestream2_get_le32u(&tiff_gb);
+
+            if (tag != 0xB002) /* only care about MP Entry */
+                continue;
+
+            /* For tag B002 (type UNDEFINED = 7), count is the total byte
+             * count of the MP Entry data.  Each entry is 16 bytes, so we
+             * need at least 32 bytes (2 entries: primary + secondary). */
+            if (count < 32 || val_off + count > (uint32_t)len)
+                break;
+
+            /* Read secondary MP Entry (at val_off + 16 in the TIFF section) */
+            {
+                GetByteContext sec_gb;
+                uint32_t sec_size, sec_data_off;
+
+                bytestream2_init(&sec_gb, tiff_start + val_off + 16, 16);
+                bytestream2_skipu(&sec_gb, 4); /* attribute */
+                sec_size     = big_endian ? bytestream2_get_be32u(&sec_gb)
+                                          : bytestream2_get_le32u(&sec_gb);
+                sec_data_off = big_endian ? bytestream2_get_be32u(&sec_gb)
+                                          : bytestream2_get_le32u(&sec_gb);
+
+                /* sec_data_off is measured from the start of the TIFF section.
+                 * Validate that the secondary JPEG lies within the overall buffer. */
+                {
+                    ptrdiff_t buf_remaining = s->raw_image_buffer_size -
+                                              (tiff_start - s->raw_image_buffer);
+                    if (sec_data_off > 0 &&
+                        (ptrdiff_t)sec_data_off + 2 <= buf_remaining &&
+                        (sec_size == 0 ||
+                         (ptrdiff_t)sec_data_off + sec_size <= buf_remaining)) {
+                        s->mpf_secondary_ptr  = tiff_start + sec_data_off;
+                        s->mpf_secondary_size = sec_size;
+                    }
+                }
+            }
+            break;
+        }
+        goto out;
     }
 
     if (start_code == APP2 && id == AV_RB32("ICC_") && len >= 10) {
@@ -2412,6 +2846,9 @@ int ff_mjpeg_decode_frame_from_buf(AVCodecContext *avctx, AVFrame *frame,
     av_exif_free(&s->exif_metadata);
     av_freep(&s->stereo3d);
     s->adobe_transform = -1;
+    s->hdr_gainmap_present = 0;
+    s->mpf_secondary_ptr   = NULL;
+    s->mpf_secondary_size  = 0;
 
     if (s->iccnum != 0)
         reset_icc_profile(s);
@@ -2882,6 +3319,78 @@ the_end:
         av_exif_free(&s->exif_metadata);
         if (ret < 0)
             av_log(avctx, AV_LOG_WARNING, "couldn't attach EXIF metadata\n");
+    }
+
+    /* HDR Gain Map: locate and decode the secondary (gain-map) JPEG.
+     * Prefer the MPF-derived pointer if available (mpf_secondary_size > 0),
+     * otherwise fall back to the first SOI found right after the primary EOI.
+     * We decode the secondary using the same AVCodecContext (avctx) to avoid
+     * the overhead of allocating a separate sub-decoder.  ff_mjpeg_decode_frame_from_buf
+     * resets the context state at entry, then parses the secondary's own APP
+     * segments (XMP/ISO) updating s->hdr_gm_* before we read them below. */
+    if (s->hdr_gainmap_present) {
+        const uint8_t *gm_ptr  = NULL;
+        int            gm_size = 0;
+
+        if (s->mpf_secondary_size > 0 &&
+            s->mpf_secondary_ptr &&
+            s->mpf_secondary_size <= (size_t)(buf_end - s->mpf_secondary_ptr) &&
+            s->mpf_secondary_ptr[0] == 0xFF &&
+            s->mpf_secondary_ptr[1] == 0xD8) {
+            /* MPF-specified location with exact size */
+            gm_ptr  = s->mpf_secondary_ptr;
+            gm_size = (int)s->mpf_secondary_size;
+        } else if (s->mpf_secondary_ptr &&
+                   s->mpf_secondary_ptr + 2 <= buf_end &&
+                   s->mpf_secondary_ptr[0] == 0xFF &&
+                   s->mpf_secondary_ptr[1] == 0xD8) {
+            /* MPF pointer without size: use rest of buffer */
+            gm_ptr  = s->mpf_secondary_ptr;
+            gm_size = (int)(buf_end - gm_ptr);
+        } else if (buf_end - buf_ptr >= 2 &&
+                   buf_ptr[0] == 0xFF && buf_ptr[1] == 0xD8) {
+            /* Fallback: secondary appended after primary EOI */
+            gm_ptr  = buf_ptr;
+            gm_size = (int)(buf_end - buf_ptr);
+        }
+
+        if (gm_ptr) {
+            AVFrame *gm_frame = av_frame_alloc();
+            if (gm_frame) {
+                int got_gm = 0;
+                /* Decode the secondary JPEG using the same context.
+                 * ff_mjpeg_decode_frame_from_buf resets hdr_gainmap_present and
+                 * MPF fields, then parses the secondary's own APP segments
+                 * (XMP/ISO), updating s->hdr_gm_* with the secondary's metadata.
+                 * If the secondary has no metadata, s->hdr_gm_* retains the
+                 * values set while parsing the primary (fallback). */
+                int gm_ret = ff_mjpeg_decode_frame_from_buf(avctx, gm_frame,
+                                                            &got_gm, NULL,
+                                                            gm_ptr, gm_size);
+                if (gm_ret >= 0 && got_gm) {
+                    AVHDRGainMap *gainmap = av_hdr_gainmap_create_side_data(frame);
+                    if (gainmap) {
+                        for (int i = 0; i < 3; i++) {
+                            gainmap->gain_map_min[i]     = av_d2q(s->hdr_gm_map_min[i],    (1 << 16));
+                            gainmap->gain_map_max[i]     = av_d2q(s->hdr_gm_map_max[i],    (1 << 16));
+                            gainmap->gamma[i]            = av_d2q(s->hdr_gm_gamma[i],       (1 << 16));
+                            gainmap->base_offset[i]      = av_d2q(s->hdr_gm_base_offset[i], (1 << 16));
+                            gainmap->alternate_offset[i] = av_d2q(s->hdr_gm_alt_offset[i],  (1 << 16));
+                        }
+                        gainmap->base_hdr_headroom      = av_d2q(s->hdr_gm_base_headroom, (1 << 16));
+                        gainmap->alternate_hdr_headroom = av_d2q(s->hdr_gm_alt_headroom,  (1 << 16));
+                        gainmap->base_rendition_is_hdr  = s->hdr_gm_base_is_hdr;
+                        gainmap->gain_map_frame         = gm_frame;
+                        gm_frame = NULL; /* ownership transferred */
+                    }
+                } else if (gm_ret < 0) {
+                    av_log(avctx, AV_LOG_WARNING,
+                           "HDR gain map decoding failed: %s\n", av_err2str(gm_ret));
+                }
+                av_frame_free(&gm_frame);
+            }
+        }
+        s->hdr_gainmap_present = 0;
     }
 
     if (avctx->codec_id != AV_CODEC_ID_SMVJPEG &&
