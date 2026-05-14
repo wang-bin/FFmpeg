@@ -172,12 +172,14 @@ int ff_mjpeg_add_gain_map_size(AVCodecContext *avctx, const AVFrame *frame,
 
     gainmap = (const AVHDRGainMap *)sd->data;
 
-    /* Reserve space for XMP APP1 and/or ISO APP2 version-only marker.
-     * We over-reserve to cover either format. */
-    /* XMP APP1: marker + length + ns (29 bytes) + body */
-    *max_pkt_size += 4 + 29 + 600;
-    /* ISO APP2 (version-only in primary): marker + length + ns (28 bytes) + 4 bytes */
-    *max_pkt_size += 4 + 28 + 4;
+    /* Reserve space for metadata in primary JPEG and MPF overhead.
+     * Over-reserve to cover either XMP or ISO. */
+    /* XMP APP1 or ISO APP2 (version-only) in primary: ~700 bytes worst case */
+    *max_pkt_size += 700;
+    /* MPF APP2 in primary: 90 bytes */
+    *max_pkt_size += 90; /* MPF_APP2_SIZE */
+    /* Metadata injected into secondary JPEG (XMP or ISO): ~700 bytes worst case */
+    *max_pkt_size += 700;
 
     /* If there is an embedded gain map frame, reserve space for its JPEG */
 #define GAINMAP_FALLBACK_SIZE 131072
@@ -274,47 +276,242 @@ static int write_iso_gainmap_payload(const AVHDRGainMap *gainmap,
 }
 
 /**
+ * Insert a JPEG APP segment immediately after the SOI marker.
+ * @param pkt     JPEG packet to modify (must start with FF D8)
+ * @param marker  APP marker byte (e.g. 0xE1 for APP1, 0xE2 for APP2)
+ * @param data    segment payload (namespace + metadata); written as-is
+ * @param size    length of @p data in bytes
+ * @return 0 on success, negative AVERROR on failure
+ */
+static int inject_app_segment(AVPacket *pkt, uint8_t marker,
+                               const uint8_t *data, int size)
+{
+    /* Full block: FF <marker>(2) + length(2) + data */
+    int block_size = 2 + 2 + size;
+    int old_size   = pkt->size;
+    int ret        = av_grow_packet(pkt, block_size);
+    if (ret < 0)
+        return ret;
+    memmove(pkt->data + 2 + block_size, pkt->data + 2, old_size - 2);
+    pkt->data[2] = 0xFF;
+    pkt->data[3] = marker;
+    AV_WB16(pkt->data + 4, block_size - 2); /* length excl. marker */
+    memcpy(pkt->data + 6, data, size);
+    return 0;
+}
+
+/**
  * Inject a full ISO 21496-1 APP2 segment into a JPEG packet right after its
- * SOI marker.  Called from mjpeg_encode_frame to embed the complete gain map
- * metadata into the secondary (gain map) JPEG when encoding in ISO mode.
+ * SOI marker.  Used to embed the complete gain map metadata into the secondary
+ * (gain map) JPEG when encoding in ISO mode.
  */
 int ff_mjpeg_inject_iso_app2(AVPacket *pkt, const AVHDRGainMap *gainmap)
 {
-    /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" (28 bytes) */
+    /* ISO namespace: "urn:iso:std:iso:ts:21496:-1\0" (28 bytes incl. NUL) */
     static const char iso_ns[] = "urn:iso:std:iso:ts:21496:-1";
-    uint8_t iso_payload[ISO_GAINMAP_PAYLOAD_MAX];
-    int iso_payload_len;
-    int app2_block_size;  /* full APP2 block: marker(2) + length(2) + ns + payload */
-    int old_size;
-    int ret;
+    uint8_t seg[sizeof(iso_ns) + ISO_GAINMAP_PAYLOAD_MAX];
+    int payload_len;
 
     if (!pkt || !gainmap)
         return AVERROR(EINVAL);
     if (pkt->size < 2 || pkt->data[0] != 0xFF || pkt->data[1] != 0xD8)
-        return AVERROR_INVALIDDATA; /* not a valid JPEG */
+        return AVERROR_INVALIDDATA;
 
-    iso_payload_len = write_iso_gainmap_payload(gainmap,
-                                                iso_payload, sizeof(iso_payload));
-    if (iso_payload_len <= 0)
+    memcpy(seg, iso_ns, sizeof(iso_ns));
+    payload_len = write_iso_gainmap_payload(gainmap,
+                                            seg + sizeof(iso_ns),
+                                            ISO_GAINMAP_PAYLOAD_MAX);
+    if (payload_len <= 0)
         return AVERROR(EINVAL);
 
-    app2_block_size = 2 /* FF E2 */ + 2 /* length */ +
-                      (int)sizeof(iso_ns) /* includes \0 */ + iso_payload_len;
+    return inject_app_segment(pkt, 0xE2, seg, (int)sizeof(iso_ns) + payload_len);
+}
 
+/**
+ * Inject an XMP APP1 gain-map metadata segment into a JPEG packet right after
+ * its SOI marker.  Used to embed XMP metadata into the secondary (gain map)
+ * JPEG when encoding in XMP mode.
+ */
+int ff_mjpeg_inject_xmp_app1(AVPacket *pkt, const AVHDRGainMap *gainmap)
+{
+    static const char xmp_ns[] = "http://ns.adobe.com/xap/1.0/";
+    char xmp_body[512];
+    uint8_t seg[sizeof(xmp_ns) + 512];
+    int xmp_body_len;
+    const char *base_is_hdr;
+
+    if (!pkt || !gainmap)
+        return AVERROR(EINVAL);
+    if (pkt->size < 2 || pkt->data[0] != 0xFF || pkt->data[1] != 0xD8)
+        return AVERROR_INVALIDDATA;
+
+    base_is_hdr = gainmap->base_rendition_is_hdr ? "True" : "False";
+    xmp_body_len = snprintf(xmp_body, sizeof(xmp_body),
+        "<?xpacket begin=\"\xef\xbb\xbf\" id=\"W5M0MpCehiHzreSzNTczkc9d\"?>"
+        "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">"
+        "<rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"
+        "<rdf:Description rdf:about=\"\""
+        " xmlns:hdrgm=\"http://ns.adobe.com/hdr-gain-map/1.0/\""
+        " hdrgm:Version=\"1.0\""
+        " hdrgm:GainMapMin=\"%.8g\""
+        " hdrgm:GainMapMax=\"%.8g\""
+        " hdrgm:Gamma=\"%.8g\""
+        " hdrgm:OffsetSDR=\"%.8g\""
+        " hdrgm:OffsetHDR=\"%.8g\""
+        " hdrgm:HDRCapacityMin=\"%.8g\""
+        " hdrgm:HDRCapacityMax=\"%.8g\""
+        " hdrgm:BaseRenditionIsHDR=\"%s\"/>"
+        "</rdf:RDF></x:xmpmeta>"
+        "<?xpacket end=\"w\"?>",
+        av_q2d(gainmap->gain_map_min[0]),
+        av_q2d(gainmap->gain_map_max[0]),
+        av_q2d(gainmap->gamma[0]),
+        av_q2d(gainmap->base_offset[0]),
+        av_q2d(gainmap->alternate_offset[0]),
+        av_q2d(gainmap->base_hdr_headroom),
+        av_q2d(gainmap->alternate_hdr_headroom),
+        base_is_hdr);
+
+    if (xmp_body_len <= 0 || xmp_body_len >= (int)sizeof(xmp_body))
+        return AVERROR(EINVAL);
+
+    memcpy(seg, xmp_ns, sizeof(xmp_ns));
+    memcpy(seg + sizeof(xmp_ns), xmp_body, xmp_body_len);
+    return inject_app_segment(pkt, 0xE1, seg, (int)sizeof(xmp_ns) + xmp_body_len);
+}
+
+/**
+ * Scan a JPEG buffer and return the byte offset of the SOS (0xFFDA) marker,
+ * or -1 if not found.  Used to inject MPF right before SOS.
+ */
+static int find_sos_offset(const uint8_t *data, int size)
+{
+    int pos = 2; /* skip SOI */
+    int seg_len;
+    while (pos + 4 <= size) {
+        if (data[pos] != 0xFF)
+            return -1;
+        if (data[pos + 1] == 0xDA) /* SOS */
+            return pos;
+        if (data[pos + 1] == 0xD8 || data[pos + 1] == 0xD9) /* SOI/EOI */
+            return -1;
+        seg_len = AV_RB16(data + pos + 2);
+        if (seg_len < 2)
+            return -1;
+        pos += 2 + seg_len;
+    }
+    return -1;
+}
+
+/*
+ * MPF APP2 block layout (90 bytes total), matching libultrahdr:
+ *   [0..1]   FF E2         APP2 marker
+ *   [2..3]   00 58         length = 88 (excl. marker)
+ *   [4..7]   MPF\0         MPF identifier
+ *   [8..9]   MM            TIFF big-endian byte order
+ *   [10..11] 00 2A         TIFF magic
+ *   [12..15] 00 00 00 08   IFD0 offset from MM = 8
+ *   [16..17] 00 03         3 IFD entries
+ *   [18..29] B000 tag      version "0100"  (12 bytes)
+ *   [30..41] B001 tag      number of images = 2  (12 bytes)
+ *   [42..53] B002 tag      MP Entry, value-offset from MM = 50  (12 bytes)
+ *   [54..57] 00 00 00 00   next IFD = 0
+ *   [58..73] primary MP Entry   (16 bytes)
+ *   [74..89] secondary MP Entry (16 bytes)
+ *
+ * The secondary image data offset is measured from the byte right after
+ * the MPF\0 signature (i.e. MPF_marker_pos + 8) to the secondary SOI,
+ * matching the libultrahdr reference implementation.
+ */
+#define MPF_APP2_SIZE 90
+
+/**
+ * Inject a Multi-Picture Format (MPF) APP2 segment into the primary JPEG
+ * packet right before its SOS marker.  The MPF encodes the sizes and offsets
+ * needed to locate the appended secondary (gain-map) JPEG.
+ *
+ * @param pkt            primary JPEG packet (modified in place)
+ * @param secondary_size total byte size of the secondary JPEG (after any
+ *                       metadata injection)
+ * @return 0 on success, a negative AVERROR on failure
+ */
+int ff_mjpeg_inject_mpf(AVPacket *pkt, uint32_t secondary_size)
+{
+    uint8_t mpf[MPF_APP2_SIZE];
+    int ins_pos;
+    uint32_t primary_after, sec_offset;
+    int old_size, ret;
+
+    if (!pkt || !pkt->data || pkt->size < 4 ||
+        pkt->data[0] != 0xFF || pkt->data[1] != 0xD8)
+        return AVERROR_INVALIDDATA;
+
+    /* Insert MPF right before SOS so the order is: headers → MPF → SOS */
+    ins_pos = find_sos_offset(pkt->data, pkt->size);
+    if (ins_pos < 2)
+        ins_pos = 2; /* fall back to right after SOI */
+
+    /* After injection the primary grows by MPF_APP2_SIZE bytes.
+     * primary_after = total size of the primary JPEG in the final stream. */
+    primary_after = (uint32_t)(pkt->size + MPF_APP2_SIZE);
+
+    /* Secondary image data offset, measured from the byte right after the
+     * MPF\0 signature (ins_pos + 8) to the first byte of the secondary SOI,
+     * following the libultrahdr reference implementation convention:
+     *   offset = primary_after - (MPF_marker_pos + 8)
+     * The MPF marker is at ins_pos in the final primary (it does not move
+     * during injection — we shift what is AFTER ins_pos). */
+    sec_offset = primary_after - (uint32_t)(ins_pos + 8);
+
+    /* --- Build MPF block ------------------------------------------------- */
+    mpf[0] = 0xFF; mpf[1] = 0xE2;           /* APP2 marker */
+    AV_WB16(mpf + 2, MPF_APP2_SIZE - 2);    /* length = 88 */
+    /* MPF identifier */
+    mpf[4] = 'M'; mpf[5] = 'P'; mpf[6] = 'F'; mpf[7] = '\0';
+    /* TIFF big-endian header; IFD0 at TIFF offset 8 */
+    mpf[8] = 'M'; mpf[9] = 'M';
+    AV_WB16(mpf + 10, 0x002A);              /* TIFF magic */
+    AV_WB32(mpf + 12, 8);                   /* IFD0 offset from MM */
+    /* IFD0 tag count */
+    AV_WB16(mpf + 16, 3);
+    /* Tag 0xB000: MPF Version = "0100" (4 UNDEFINED bytes, inline) */
+    AV_WB16(mpf + 18, 0xB000);
+    AV_WB16(mpf + 20, 7);                   /* type: UNDEFINED */
+    AV_WB32(mpf + 22, 4);                   /* count */
+    mpf[26] = '0'; mpf[27] = '1'; mpf[28] = '0'; mpf[29] = '0';
+    /* Tag 0xB001: Number of Images = 2 (1 LONG, inline) */
+    AV_WB16(mpf + 30, 0xB001);
+    AV_WB16(mpf + 32, 4);                   /* type: LONG */
+    AV_WB32(mpf + 34, 1);                   /* count */
+    AV_WB32(mpf + 38, 2);                   /* value: 2 images */
+    /* Tag 0xB002: MP Entry (32 bytes, value offset from MM = 50) */
+    AV_WB16(mpf + 42, 0xB002);
+    AV_WB16(mpf + 44, 7);                   /* type: UNDEFINED */
+    AV_WB32(mpf + 46, 32);                  /* count: 2 × 16 bytes */
+    AV_WB32(mpf + 50, 50);                  /* value offset from MM */
+    /* Next IFD offset = 0 */
+    AV_WB32(mpf + 54, 0);
+    /* Primary MP Entry at mpf[58] (TIFF offset 50 from MM = mpf[8+50]) */
+    AV_WB32(mpf + 58, 0x03000000);          /* attr: primary+representative+JPEG */
+    AV_WB32(mpf + 62, primary_after);       /* individual image size */
+    AV_WB32(mpf + 66, 0);                   /* data offset = 0 for primary */
+    AV_WB16(mpf + 70, 0);                   /* dep image 1 = 0 */
+    AV_WB16(mpf + 72, 0);                   /* dep image 2 = 0 */
+    /* Secondary MP Entry at mpf[74] */
+    AV_WB32(mpf + 74, 0x00000000);          /* attr: supplementary JPEG */
+    AV_WB32(mpf + 78, secondary_size);      /* individual image size */
+    AV_WB32(mpf + 82, sec_offset);          /* data offset */
+    AV_WB16(mpf + 86, 0);                   /* dep image 1 = 0 */
+    AV_WB16(mpf + 88, 0);                   /* dep image 2 = 0 */
+
+    /* --- Inject into packet ---------------------------------------------- */
     old_size = pkt->size;
-    ret = av_grow_packet(pkt, app2_block_size);
+    ret = av_grow_packet(pkt, MPF_APP2_SIZE);
     if (ret < 0)
         return ret;
-
-    /* Shift everything after SOI to make room for the APP2 block */
-    memmove(pkt->data + 2 + app2_block_size, pkt->data + 2, old_size - 2);
-
-    /* Write APP2 block immediately after SOI */
-    pkt->data[2] = 0xFF;
-    pkt->data[3] = 0xE2; /* APP2 marker */
-    AV_WB16(pkt->data + 4, app2_block_size - 2); /* length excl. marker bytes */
-    memcpy(pkt->data + 6, iso_ns, sizeof(iso_ns));
-    memcpy(pkt->data + 6 + sizeof(iso_ns), iso_payload, iso_payload_len);
+    memmove(pkt->data + ins_pos + MPF_APP2_SIZE,
+            pkt->data + ins_pos, old_size - ins_pos);
+    memcpy(pkt->data + ins_pos, mpf, MPF_APP2_SIZE);
     return 0;
 }
 

@@ -121,4 +121,27 @@ int ff_mjpeg_encode_stuffing(MPVEncContext *s);
  */
 int ff_mjpeg_inject_iso_app2(AVPacket *pkt, const AVHDRGainMap *gainmap);
 
+/**
+ * Inject an XMP APP1 gain-map metadata segment into a JPEG packet right after
+ * its SOI marker.  Used to embed XMP metadata into the secondary (gain map)
+ * JPEG when encoding in XMP mode.
+ *
+ * @param pkt     JPEG packet to modify (must start with 0xFF 0xD8 SOI)
+ * @param gainmap gain map metadata to encode
+ * @return 0 on success, a negative AVERROR on failure
+ */
+int ff_mjpeg_inject_xmp_app1(AVPacket *pkt, const AVHDRGainMap *gainmap);
+
+/**
+ * Inject a Multi-Picture Format (MPF) APP2 segment into the primary JPEG
+ * packet right before its SOS marker.  The MPF encodes the sizes and offsets
+ * needed to locate the appended secondary (gain-map) JPEG.
+ *
+ * @param pkt            primary JPEG packet (modified in place)
+ * @param secondary_size total byte size of the secondary JPEG (after any
+ *                       metadata injection into it)
+ * @return 0 on success, a negative AVERROR on failure
+ */
+int ff_mjpeg_inject_mpf(AVPacket *pkt, uint32_t secondary_size);
+
 #endif /* AVCODEC_MJPEGENC_H */

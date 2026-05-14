@@ -768,18 +768,30 @@ static int mjpeg_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
         goto done;
     }
 
-    /* Append the gain map JPEG after the primary packet.
-     * For ISO mode, inject the full ISO 21496-1 APP2 metadata into the
-     * secondary JPEG right after its SOI before appending it. */
+    /* Inject same-format metadata into secondary JPEG right after SOI.
+     * XMP mode → APP1 XMP; ISO mode → full ISO APP2. */
     {
         MJPEGEncContext *enc_ctx = avctx->priv_data;
-        if (enc_ctx->mjpeg.gain_map_metadata == GAIN_MAP_METADATA_ISO) {
-            int inject_ret = ff_mjpeg_inject_iso_app2(gm_pkt, gainmap);
-            if (inject_ret < 0)
-                av_log(avctx, AV_LOG_WARNING,
-                       "HDR gain map: failed to inject ISO APP2 into secondary JPEG: %s\n",
-                       av_err2str(inject_ret));
-        }
+        int inj_ret;
+        if (enc_ctx->mjpeg.gain_map_metadata == GAIN_MAP_METADATA_ISO)
+            inj_ret = ff_mjpeg_inject_iso_app2(gm_pkt, gainmap);
+        else
+            inj_ret = ff_mjpeg_inject_xmp_app1(gm_pkt, gainmap);
+        if (inj_ret < 0)
+            av_log(avctx, AV_LOG_WARNING,
+                   "HDR gain map: failed to inject metadata into secondary JPEG: %s\n",
+                   av_err2str(inj_ret));
+    }
+
+    /* Inject MPF APP2 into primary JPEG right before SOS so the layout is:
+     *   XMP: SOI + APP1_XMP + APP2_MPF + SOS + data + EOI + SOI + APP1_XMP + SOS + data + EOI
+     *   ISO: SOI + APP2_ISO_ver + APP2_MPF + SOS + data + EOI + SOI + APP2_ISO_full + SOS + data + EOI */
+    {
+        int inj_ret = ff_mjpeg_inject_mpf(pkt, (uint32_t)gm_pkt->size);
+        if (inj_ret < 0)
+            av_log(avctx, AV_LOG_WARNING,
+                   "HDR gain map: failed to inject MPF into primary JPEG: %s\n",
+                   av_err2str(inj_ret));
     }
 
     ret = av_grow_packet(pkt, gm_pkt->size);
