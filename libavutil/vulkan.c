@@ -1584,7 +1584,9 @@ int ff_vk_mt_is_np_rgb(enum AVPixelFormat pix_fmt)
         pix_fmt == AV_PIX_FMT_X2RGB10 || pix_fmt == AV_PIX_FMT_X2BGR10 ||
         pix_fmt == AV_PIX_FMT_RGBAF32 || pix_fmt == AV_PIX_FMT_RGBF32 ||
         pix_fmt == AV_PIX_FMT_RGBA128 || pix_fmt == AV_PIX_FMT_RGB96 ||
-        pix_fmt == AV_PIX_FMT_GBRP || pix_fmt == AV_PIX_FMT_BAYER_RGGB16)
+        pix_fmt == AV_PIX_FMT_GBRP || pix_fmt == AV_PIX_FMT_BAYER_RGGB16 ||
+        pix_fmt == AV_PIX_FMT_BAYER_GRBG16 || pix_fmt == AV_PIX_FMT_BAYER_BGGR16 ||
+        pix_fmt == AV_PIX_FMT_BAYER_GBRG16)
         return 1;
     return 0;
 }
@@ -1761,7 +1763,10 @@ const char *ff_vk_shader_rep_fmt(enum AVPixelFormat pix_fmt,
     case AV_PIX_FMT_YUVA444P10:
     case AV_PIX_FMT_YUVA444P12:
     case AV_PIX_FMT_YUVA444P16:
-    case AV_PIX_FMT_BAYER_RGGB16: {
+    case AV_PIX_FMT_BAYER_RGGB16:
+    case AV_PIX_FMT_BAYER_GRBG16:
+    case AV_PIX_FMT_BAYER_BGGR16:
+    case AV_PIX_FMT_BAYER_GBRG16: {
         const char *rep_tab[] = {
             [FF_VK_REP_NATIVE] = "r16ui",
             [FF_VK_REP_FLOAT] = "r16f",

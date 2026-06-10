@@ -424,10 +424,9 @@ static int decode_frame(AVCodecContext *avctx,
     /* BayerPattern: 0=RGGB, 1=GRBG, 2=BGGR, 3=GBRG */
     int bayer_pattern = bytestream2_get_be16(&gb_hdr) & 0x3;
     enum AVPixelFormat pix_fmt = bayer_pix_fmts[bayer_pattern];
-    if (pix_fmt != s->pix_fmt || bayer_pattern != s->bayer_pattern ||
-        dimensions_changed || s->version != old_version) {
+    s->bayer_pattern = bayer_pattern;
+    if (pix_fmt != s->pix_fmt || dimensions_changed || s->version != old_version) {
         s->pix_fmt = pix_fmt;
-        s->bayer_pattern = bayer_pattern;
 
         ret = get_pixel_format(avctx, pix_fmt);
         if (ret < 0)

@@ -25,6 +25,7 @@
 
 #define GET_BITS_SMEM 4
 #include "common.glsl"
+#include "prores_raw.glsl"
 
 struct TileData {
    ivec2 pos;
@@ -40,6 +41,7 @@ layout (set = 0, binding = 1, scalar) readonly buffer frame_data_buf {
 
 layout (push_constant, scalar) uniform pushConstants {
    u8buf pkt_data;
+   uint bayer_pattern;
 };
 
 #define COMP_ID (gl_LocalInvocationID.y)
@@ -227,7 +229,7 @@ void main(void)
     if (expectEXT(size[0] < 0, false))
         return;
 
-    const ivec2 offs = td.pos + ivec2(COMP_ID & 1, COMP_ID >> 1);
+    const ivec2 offs = td.pos + bayer_component_offs(bayer_pattern, COMP_ID);
     const int nb_blocks = 1 << td.log2_nb_blocks;
 
     const ivec4 comp_offset = ivec4(size[2] + size[1] + size[3],
