@@ -51,6 +51,7 @@ typedef struct ProResRAWVulkanDecodeContext {
 
 typedef struct DecodePushData {
     VkDeviceAddress pkt_data;
+    uint8_t comp_pos[4];
     uint8_t  qmat[64];
     uint16_t lin_curve[8];
 } DecodePushData;
@@ -232,6 +233,7 @@ static int vk_prores_raw_end_frame(AVCodecContext *avctx)
     DecodePushData pd_decode = (DecodePushData) {
         .pkt_data = slices_buf->address,
     };
+    memcpy(pd_decode.comp_pos, prr->comp_pos, sizeof(pd_decode.comp_pos));
     memcpy(pd_decode.qmat, prr->qmat, 64);
     memcpy(pd_decode.lin_curve, prr->lin_curve, sizeof(pd_decode.lin_curve));
     ff_vk_shader_update_push_const(&ctx->s, exec, decode_shader,

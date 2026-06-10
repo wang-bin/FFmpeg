@@ -40,6 +40,7 @@ layout (set = 0, binding = 1, scalar) readonly buffer frame_data_buf {
 
 layout (push_constant, scalar) uniform pushConstants {
    u8buf pkt_data;
+   uint8_t comp_pos[4];
 };
 
 #define COMP_ID (gl_LocalInvocationID.y)
@@ -219,24 +220,26 @@ void main(void)
     u8vec2buf hdr_data = u8vec2buf(pkt_offset);
     int header_len = hdr_data[0].v.x >> 3;
 
-    ivec4 size = ivec4(td.size,
+    ivec4 size = ivec4(pack16(hdr_data[1].v.yx),
                        pack16(hdr_data[2].v.yx),
-                       pack16(hdr_data[1].v.yx),
-                       pack16(hdr_data[3].v.yx));
-    size[0] = size[0] - size[1] - size[2] - size[3] - header_len;
-    if (expectEXT(size[0] < 0, false))
+                       pack16(hdr_data[3].v.yx),
+                       td.size);
+    size[3] = size[3] - size[0] - size[1] - size[2] - header_len;
+    if (expectEXT(size[3] < 0, false))
         return;
 
-    const ivec2 offs = td.pos + ivec2(COMP_ID & 1, COMP_ID >> 1);
+    const int comp_id = int(COMP_ID);
+    const int pos = int(comp_pos[comp_id]);
+    const ivec2 offs = td.pos + ivec2(pos & 1, pos >> 1);
     const int nb_blocks = 1 << td.log2_nb_blocks;
 
-    const ivec4 comp_offset = ivec4(size[2] + size[1] + size[3],
-                                    size[2],
-                                    0,
-                                    size[2] + size[1]);
+    const ivec4 comp_offset = ivec4(0,
+                                    size[0],
+                                    size[0] + size[1],
+                                    size[0] + size[1] + size[2]);
 
-    init_get_bits(gb, u8buf(pkt_offset + header_len + comp_offset[COMP_ID]),
-                  size[COMP_ID]);
+    init_get_bits(gb, u8buf(pkt_offset + header_len + comp_offset[comp_id]),
+                  size[comp_id]);
 
     read_dc_vals(offs, nb_blocks);
     read_ac_vals(offs, nb_blocks);

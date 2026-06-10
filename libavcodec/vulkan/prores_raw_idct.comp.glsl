@@ -40,6 +40,7 @@ layout (set = 0, binding = 1, scalar) readonly buffer frame_data_buf {
 
 layout (push_constant, scalar) uniform pushConstants {
    u8buf pkt_data;
+   uint8_t comp_pos[4];
    uint8_t qmat[64];
    uint16_t lin_curve[8];
 };
@@ -79,7 +80,9 @@ void main(void)
     u8vec2buf hdr_data = u8vec2buf(pkt_offset);
     int qscale = int(hdr_data[0].v.y);
 
-    const ivec2 offs = td.pos + ivec2(COMP_ID & 1, COMP_ID >> 1);
+    const int comp_id = int(COMP_ID);
+    const int pos = int(comp_pos[comp_id]);
+    const ivec2 offs = td.pos + ivec2(pos & 1, pos >> 1);
     const uint nb_blocks = 1 << td.log2_nb_blocks;
 
     if (gl_LocalInvocationIndex == 0) {

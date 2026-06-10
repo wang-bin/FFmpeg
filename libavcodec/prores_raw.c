@@ -56,6 +56,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
     avctx->colorspace = AVCOL_SPC_UNSPECIFIED;
 
     s->pix_fmt = AV_PIX_FMT_NONE;
+    memcpy(s->comp_pos, (uint8_t[]) { 2, 1, 3, 0 }, sizeof(s->comp_pos));
 
     ff_blockdsp_init(&s->bdsp);
     /* Coefficients and the iDCT are 12-bit, the linearization curve then
@@ -276,22 +277,22 @@ static int decode_tile(AVCodecContext *avctx, TileContext *tile,
     const uint8_t *comp_start = gb->buffer_start + header_len;
 
     ret = decode_comp(avctx, tile, frame, comp_start,
-                      size[0], 2, qmat);
+                      size[0], s->comp_pos[0], qmat);
     if (ret < 0)
         goto fail;
 
     ret = decode_comp(avctx, tile, frame, comp_start + size[0],
-                      size[1], 1, qmat);
+                      size[1], s->comp_pos[1], qmat);
     if (ret < 0)
         goto fail;
 
     ret = decode_comp(avctx, tile, frame, comp_start + size[0] + size[1],
-                      size[2], 3, qmat);
+                      size[2], s->comp_pos[2], qmat);
     if (ret < 0)
         goto fail;
 
     ret = decode_comp(avctx, tile, frame, comp_start + size[0] + size[1] + size[2],
-                      size[3], 0, qmat);
+                      size[3], s->comp_pos[3], qmat);
     if (ret < 0)
         goto fail;
 
@@ -399,7 +400,32 @@ static int decode_frame(AVCodecContext *avctx,
     avctx->coded_width  = FFALIGN(w, 16);
     avctx->coded_height = FFALIGN(h, 16);
 
-    enum AVPixelFormat pix_fmt = AV_PIX_FMT_BAYER_RGGB16;
+    /* RecommendedCrop: pixel margins to discard after debayer. Order is
+     * left/right/top/bottom */
+    uint8_t crop_l = bytestream2_get_byte(&gb_hdr);
+    uint8_t crop_r = bytestream2_get_byte(&gb_hdr);
+    uint8_t crop_t = bytestream2_get_byte(&gb_hdr);
+    uint8_t crop_b = bytestream2_get_byte(&gb_hdr);
+
+    /* BayerPattern: 0=RGGB, 1=GRBG, 2=BGGR, 3=GBRG */
+    int bayer_pattern = bytestream2_get_be16(&gb_hdr) & 0x3;
+
+    static const enum AVPixelFormat pattern_fmts[] = {
+        AV_PIX_FMT_BAYER_RGGB16,
+        AV_PIX_FMT_BAYER_GRBG16,
+        AV_PIX_FMT_BAYER_BGGR16,
+        AV_PIX_FMT_BAYER_GBRG16,
+    };
+    /* Bitstream chunks are ordered as Gb, Gr, B, R. Map them to the
+     * top-left/top-right/bottom-left/bottom-right mosaic positions. */
+    static const uint8_t pattern_comp_pos[4][4] = {
+        { 2, 1, 3, 0 }, /* RGGB */
+        { 3, 0, 2, 1 }, /* GRBG */
+        { 1, 2, 0, 3 }, /* BGGR */
+        { 0, 3, 1, 2 }, /* GBRG */
+    };
+    const enum AVPixelFormat pix_fmt = pattern_fmts[bayer_pattern];
+    memcpy(s->comp_pos, pattern_comp_pos[bayer_pattern], sizeof(s->comp_pos));
     if (pix_fmt != s->pix_fmt || dimensions_changed ||
         s->version != old_version) {
         s->pix_fmt = pix_fmt;
@@ -409,20 +435,6 @@ static int decode_frame(AVCodecContext *avctx,
             return ret;
 
         avctx->pix_fmt = ret;
-    }
-
-    /* RecommendedCrop: pixel margins to discard after debayer. Order is
-     * left/right/top/bottom */
-    uint8_t crop_l = bytestream2_get_byte(&gb_hdr);
-    uint8_t crop_r = bytestream2_get_byte(&gb_hdr);
-    uint8_t crop_t = bytestream2_get_byte(&gb_hdr);
-    uint8_t crop_b = bytestream2_get_byte(&gb_hdr);
-
-    /* BayerPattern: 0=RGGB, 1/2/3 = alternates */
-    int bayer_pattern = bytestream2_get_be16(&gb_hdr) & 0x3;
-    if (bayer_pattern != 0) {
-        avpriv_request_sample(avctx, "Bayer pattern %d", bayer_pattern);
-        return AVERROR_PATCHWELCOME;
     }
 
     /* senselValueRange: black_level is hardcoded to 0x100,
@@ -609,6 +621,7 @@ static int update_thread_context(AVCodecContext *dst, const AVCodecContext *src)
     ProResRAWContext *rdst = dst->priv_data;
 
     rdst->pix_fmt = rsrc->pix_fmt;
+    memcpy(rdst->comp_pos, rsrc->comp_pos, sizeof(rdst->comp_pos));
     rdst->version = rsrc->version;
 
     return 0;

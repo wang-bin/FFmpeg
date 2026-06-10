@@ -1584,7 +1584,8 @@ int ff_vk_mt_is_np_rgb(enum AVPixelFormat pix_fmt)
         pix_fmt == AV_PIX_FMT_X2RGB10 || pix_fmt == AV_PIX_FMT_X2BGR10 ||
         pix_fmt == AV_PIX_FMT_RGBAF32 || pix_fmt == AV_PIX_FMT_RGBF32 ||
         pix_fmt == AV_PIX_FMT_RGBA128 || pix_fmt == AV_PIX_FMT_RGB96 ||
-        pix_fmt == AV_PIX_FMT_GBRP || pix_fmt == AV_PIX_FMT_BAYER_RGGB16)
+        pix_fmt == AV_PIX_FMT_GBRP ||
+        pix_fmt == AV_PIX_FMT_BAYER_RGGB16 || pix_fmt == AV_PIX_FMT_BAYER_GRBG16 || pix_fmt == AV_PIX_FMT_BAYER_BGGR16 || pix_fmt == AV_PIX_FMT_BAYER_GBRG16)
         return 1;
     return 0;
 }
