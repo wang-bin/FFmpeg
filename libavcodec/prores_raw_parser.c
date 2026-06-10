@@ -71,7 +71,15 @@ static int prores_raw_parse(AVCodecParserContext *s, AVCodecContext *avctx,
     s->height = bytestream2_get_be16(&gb);
     s->coded_width  = FFALIGN(s->width, 16);
     s->coded_height = FFALIGN(s->height, 16);
-    s->format = AV_PIX_FMT_BAYER_RGGB16;
+
+    bytestream2_skip(&gb, 4); /* RecommendedCrop */
+    static const enum AVPixelFormat bayer_pix_fmts[] = {
+        AV_PIX_FMT_BAYER_RGGB16,
+        AV_PIX_FMT_BAYER_GRBG16,
+        AV_PIX_FMT_BAYER_BGGR16,
+        AV_PIX_FMT_BAYER_GBRG16,
+    };
+    s->format = bayer_pix_fmts[bytestream2_get_be16(&gb) & 0x3];
     s->key_frame = 1;
     s->pict_type = AV_PICTURE_TYPE_I;
     s->field_order = AV_FIELD_PROGRESSIVE;

@@ -129,6 +129,22 @@ const int16_t ff_prores_raw_ln_cb[LN_CB_MAX + 1] = {
     0x100, 0x111, 0x222, 0x222, 0x122, 0x122, 0x433, 0x433, 0x233, 0x233, 0x233, 0x233, 0x233, 0x233, 0x033,
 };
 
+/* Logical component positions within a 2x2 Bayer cell: 0=R, 1/2=G, 3=B.
+ * Indexed by [bayer_pattern][component][x/y]. */
+static const uint8_t bayer_comp_pos[4][4][2] = {
+    [0] = { {0, 0}, {1, 0}, {0, 1}, {1, 1} }, /* RGGB */
+    [1] = { {1, 0}, {0, 0}, {1, 1}, {0, 1} }, /* GRBG */
+    [2] = { {1, 1}, {1, 0}, {0, 1}, {0, 0} }, /* BGGR */
+    [3] = { {0, 1}, {0, 0}, {1, 1}, {1, 0} }, /* GBRG */
+};
+
+static const enum AVPixelFormat bayer_pix_fmts[] = {
+    AV_PIX_FMT_BAYER_RGGB16,
+    AV_PIX_FMT_BAYER_GRBG16,
+    AV_PIX_FMT_BAYER_BGGR16,
+    AV_PIX_FMT_BAYER_GBRG16,
+};
+
 static int decode_comp(AVCodecContext *avctx, TileContext *tile,
                        AVFrame *frame, const uint8_t *data, int size,
                        int component, int16_t *qmat)
@@ -158,9 +174,8 @@ static int decode_comp(AVCodecContext *avctx, TileContext *tile,
     const uint8_t *scan = s->scan;
     GetBitContext gb;
 
-    if (component > 1)
-        dst += linesize;
-    dst += component & 1;
+    dst += bayer_comp_pos[s->bayer_pattern][component][1] * linesize +
+            bayer_comp_pos[s->bayer_pattern][component][0];
 
     if ((ret = init_get_bits8(&gb, data, size)) < 0)
         return ret;
@@ -399,18 +414,6 @@ static int decode_frame(AVCodecContext *avctx,
     avctx->coded_width  = FFALIGN(w, 16);
     avctx->coded_height = FFALIGN(h, 16);
 
-    enum AVPixelFormat pix_fmt = AV_PIX_FMT_BAYER_RGGB16;
-    if (pix_fmt != s->pix_fmt || dimensions_changed ||
-        s->version != old_version) {
-        s->pix_fmt = pix_fmt;
-
-        ret = get_pixel_format(avctx, pix_fmt);
-        if (ret < 0)
-            return ret;
-
-        avctx->pix_fmt = ret;
-    }
-
     /* RecommendedCrop: pixel margins to discard after debayer. Order is
      * left/right/top/bottom */
     uint8_t crop_l = bytestream2_get_byte(&gb_hdr);
@@ -418,11 +421,19 @@ static int decode_frame(AVCodecContext *avctx,
     uint8_t crop_t = bytestream2_get_byte(&gb_hdr);
     uint8_t crop_b = bytestream2_get_byte(&gb_hdr);
 
-    /* BayerPattern: 0=RGGB, 1/2/3 = alternates */
+    /* BayerPattern: 0=RGGB, 1=GRBG, 2=BGGR, 3=GBRG */
     int bayer_pattern = bytestream2_get_be16(&gb_hdr) & 0x3;
-    if (bayer_pattern != 0) {
-        avpriv_request_sample(avctx, "Bayer pattern %d", bayer_pattern);
-        return AVERROR_PATCHWELCOME;
+    enum AVPixelFormat pix_fmt = bayer_pix_fmts[bayer_pattern];
+    if (pix_fmt != s->pix_fmt || bayer_pattern != s->bayer_pattern ||
+        dimensions_changed || s->version != old_version) {
+        s->pix_fmt = pix_fmt;
+        s->bayer_pattern = bayer_pattern;
+
+        ret = get_pixel_format(avctx, pix_fmt);
+        if (ret < 0)
+            return ret;
+
+        avctx->pix_fmt = ret;
     }
 
     /* senselValueRange: black_level is hardcoded to 0x100,
@@ -610,6 +621,7 @@ static int update_thread_context(AVCodecContext *dst, const AVCodecContext *src)
 
     rdst->pix_fmt = rsrc->pix_fmt;
     rdst->version = rsrc->version;
+    rdst->bayer_pattern  = rsrc->bayer_pattern;
 
     return 0;
 }

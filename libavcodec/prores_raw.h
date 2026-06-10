@@ -47,6 +47,7 @@ typedef struct ProResRAWContext {
     int nb_tw, nb_th;
 
     enum AVPixelFormat pix_fmt;
+    int bayer_pattern;
     AVFrame *frame;
     void *hwaccel_picture_private;
 
