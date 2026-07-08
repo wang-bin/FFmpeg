@@ -339,7 +339,7 @@ External library support:
   --enable-openssl         enable openssl, needed for https support
                            if wolfssl, gnutls, libtls or mbedtls is not used [no]
   --enable-picotls         enable picotls, needed for https support
-                           if wolfssl, openssl, gnutls, libtls or mbedtls is not used [no]
+                           if wolfssl, openssl backend, gnutls, libtls or mbedtls is not used [no]
   --enable-pocketsphinx    enable PocketSphinx, needed for asr filter [no]
   --disable-sndio          disable sndio support [autodetect]
   --disable-schannel       disable SChannel SSP, needed for TLS support on
@@ -4131,6 +4131,8 @@ securetransport_conflict="openssl gnutls libtls mbedtls wolfssl"
 shared_protocol_deps="mmap stdatomic unistd_h"
 srtp_protocol_select="rtp_protocol srtp"
 tcp_protocol_select="network"
+# `openssl` here refers to the --enable-openssl TLS backend option; picotls still links
+# against OpenSSL/libcrypto through picotls-openssl.
 picotls_conflict="openssl gnutls libtls mbedtls wolfssl schannel securetransport"
 tls_protocol_deps_any="gnutls openssl schannel securetransport libtls mbedtls wolfssl picotls"
 tls_protocol_select="tcp_protocol"

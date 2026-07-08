@@ -257,8 +257,8 @@ static int tls_open(URLContext *h, const char *uri, int flags, AVDictionary **op
     if ((ret = ff_tls_open_underlying(c, h, uri, options)) < 0)
         goto fail;
 
-    ptls_buffer_init(&s->sendbuf, "", 0);
-    ptls_buffer_init(&s->recvbuf, "", 0);
+    ptls_buffer_init(&s->sendbuf, NULL, 0);
+    ptls_buffer_init(&s->recvbuf, NULL, 0);
     s->buffers_inited = 1;
 
     memset(&s->ptls_ctx, 0, sizeof(s->ptls_ctx));
