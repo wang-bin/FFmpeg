@@ -339,7 +339,7 @@ External library support:
   --enable-openssl         enable openssl, needed for https support
                            if wolfssl, gnutls, libtls or mbedtls is not used [no]
   --enable-picotls         enable picotls, needed for https support
-                           if wolfssl, openssl backend, gnutls, libtls or mbedtls is not used [no]
+                           if wolfssl, openssl, gnutls, libtls or mbedtls is not used [no]
   --enable-pocketsphinx    enable PocketSphinx, needed for asr filter [no]
   --disable-sndio          disable sndio support [autodetect]
   --disable-schannel       disable SChannel SSP, needed for TLS support on
