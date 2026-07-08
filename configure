@@ -4131,8 +4131,6 @@ securetransport_conflict="openssl gnutls libtls mbedtls wolfssl"
 shared_protocol_deps="mmap stdatomic unistd_h"
 srtp_protocol_select="rtp_protocol srtp"
 tcp_protocol_select="network"
-# `openssl` here refers to the --enable-openssl TLS backend option; picotls still links
-# against OpenSSL/libcrypto through picotls-openssl.
 picotls_conflict="openssl gnutls libtls mbedtls wolfssl schannel securetransport"
 tls_protocol_deps_any="gnutls openssl schannel securetransport libtls mbedtls wolfssl picotls"
 tls_protocol_select="tcp_protocol"
@@ -7374,9 +7372,8 @@ enabled frei0r            && require_headers "frei0r.h"
 enabled gmp               && require gmp gmp.h mpz_export -lgmp
 enabled gnutls            && require_pkg_config gnutls gnutls gnutls/gnutls.h gnutls_global_init
 enabled wolfssl           && require_pkg_config wolfssl wolfssl wolfssl/ssl.h wolfSSL_library_init
-enabled picotls           && { check_pkg_config picotls picotls-openssl "picotls.h picotls/openssl.h" ptls_openssl_random_bytes ||
-                               check_lib picotls picotls/openssl.h ptls_openssl_random_bytes -lpicotls-openssl -lpicotls-core ||
-                               check_lib picotls picotls/openssl.h ptls_openssl_random_bytes -lpicotls-openssl -lpicotls-core -lcrypto ||
+enabled picotls           && { check_pkg_config picotls picotls-minicrypto "picotls.h picotls/minicrypto.h" ptls_minicrypto_random_bytes ||
+                               check_lib picotls picotls/minicrypto.h ptls_minicrypto_random_bytes -lpicotls-minicrypto -lpicotls-core ||
                                die "ERROR: picotls not found"; }
 enabled jni               && { [ $target_os = "android" ] && check_headers jni.h && enabled pthreads || die "ERROR: jni not found"; }
 enabled ladspa            && require_headers "ladspa.h dlfcn.h"
