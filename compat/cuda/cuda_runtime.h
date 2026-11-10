@@ -34,7 +34,7 @@
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #define abs(x) ((x) < 0 ? -(x) : (x))
 
-#define atomicAdd(a, b) (__atomic_fetch_add(a, b, __ATOMIC_SEQ_CST))
+static inline __device__ int atomicAdd(int *address, int val) { return __nvvm_atom_add_gen_i(address, val); }
 
 // Basic typedefs
 typedef __device_builtin__ unsigned long long cudaTextureObject_t;
