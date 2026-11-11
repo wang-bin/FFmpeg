@@ -343,8 +343,10 @@ External library support:
   --disable-schannel       disable SChannel SSP, needed for TLS support on
                            Windows if openssl and gnutls are not used [autodetect]
   --disable-sdl2           disable sdl2 [autodetect]
+  --disable-networkframework disable Apple Network.framework TLS, preferred
+                           on macOS 10.15+ if openssl and gnutls are not used [autodetect]
   --disable-securetransport disable Secure Transport, needed for TLS support
-                           on OSX if openssl and gnutls are not used [autodetect]
+                           on macOS if openssl and gnutls are not used [autodetect]
   --enable-vapoursynth     enable VapourSynth demuxer [no]
   --enable-whisper         enable whisper filter [no]
   --disable-xlib           disable xlib [autodetect]
@@ -2003,6 +2005,7 @@ EXTERNAL_AUTODETECT_LIBRARY_LIST="
     lzma
     mediafoundation
     metal
+    networkframework
     schannel
     sdl2
     securetransport
@@ -4097,14 +4100,15 @@ rtp_protocol_select="udp_protocol"
 schannel_conflict="openssl gnutls libtls mbedtls wolfssl"
 sctp_protocol_deps="struct_sctp_event_subscribe struct_msghdr_msg_flags"
 sctp_protocol_select="network"
+networkframework_conflict="openssl gnutls libtls mbedtls wolfssl"
 securetransport_conflict="openssl gnutls libtls mbedtls wolfssl"
 shared_protocol_deps="atomics_native"
 srtp_protocol_select="rtp_protocol srtp"
 tcp_protocol_select="network"
-tls_protocol_deps_any="gnutls openssl schannel securetransport libtls mbedtls wolfssl"
+tls_protocol_deps_any="gnutls openssl schannel securetransport networkframework libtls mbedtls wolfssl"
 tls_protocol_select="tcp_protocol"
 # TODO: Support libtls.
-dtls_protocol_deps_any="openssl schannel gnutls mbedtls"
+dtls_protocol_deps_any="openssl schannel gnutls mbedtls networkframework"
 dtls_protocol_select="udp_protocol"
 udp_protocol_select="network"
 udplite_protocol_select="network"
@@ -7544,6 +7548,16 @@ if enabled decklink; then
             ;;
     esac
 fi
+
+enabled networkframework &&
+    check_lib networkframework "Network/Network.h Security/Security.h" "nw_connection_create" "-framework Network -framework Security -framework CoreFoundation" ||
+        disable networkframework
+
+# Prefer Network.framework over SecureTransport on modern Apple platforms.
+enabled networkframework && disable securetransport
+
+enabled networkframework &&
+    check_func SecItemImport "-framework CoreFoundation -framework Security"
 
 enabled securetransport &&
     check_func SecIdentityCreate "-framework CoreFoundation -framework Security" &&

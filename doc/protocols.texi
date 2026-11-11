@@ -2304,6 +2304,17 @@ space) can be used to escape keys and values.
 Options can also can be specified via command line options (or in code via
 @code{AVOption}s).
 
+The TLS backend is selected at build time. Available backends include GnuTLS,
+OpenSSL, mbedTLS, libtls, wolfSSL, SChannel (Windows), Network.framework
+(Apple), and Secure Transport (legacy Apple). Only one backend is linked into
+a build.
+
+On Apple platforms, configure prefers Network.framework over the deprecated
+Secure Transport backend when available. Network.framework supports TLS 1.3.
+Unlike OpenSSL/GnuTLS, it owns the underlying connection, so
+@code{external_sock}, @code{url_get_file_handle}, and DTLS-SRTP key export are
+not available with that backend.
+
 The list of supported options follows.
 
 @table @option

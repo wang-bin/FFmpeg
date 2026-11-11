@@ -354,7 +354,7 @@ static const struct URLProtocol *url_find_protocol(const char *filename)
     if (av_strstart(filename, "https:", NULL) || av_strstart(filename, "tls:", NULL) ||
         av_strstart(filename, "dtls:", NULL))
         av_log(NULL, AV_LOG_WARNING, "https or dtls protocol not found, recompile FFmpeg with "
-                                     "openssl, gnutls or securetransport enabled.\n");
+                                     "openssl, gnutls, networkframework or securetransport enabled.\n");
 
     return NULL;
 }
