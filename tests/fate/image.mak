@@ -651,7 +651,7 @@ fate-jpeg-mpf-gainmap: CMD = transcode lavfi testsrc2=s=64x48:r=1:d=1 jpeg_mpf \
      -/filter_complex $(TARGET_PATH)/tests/data/filtergraphs/jpeg_mpf_gainmap \
      -map [base] -map [gain] -stream_group type=gain_map:st=0:st=1:el_index=1 \
      -pix_fmt yuvj444p -c:v mjpeg -dct int" "-map 0" \
-    "-show_entries stream_group=index,type,nb_streams:stream_group_stream=index:frame=stream_index:frame_side_data_list -of compact"
+    "-show_entries stream_group=index,type,nb_streams:stream_group_stream=index:packet=stream_index:packet_side_data_list:frame=stream_index:frame_side_data_list -of compact"
 
 FATE_FFMPEG_FFPROBE += $(FATE_JPEG_MPF-yes)
 fate-jpeg-mpf: $(FATE_JPEG_MPF-yes)

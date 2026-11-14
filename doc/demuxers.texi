@@ -758,7 +758,8 @@ in the order of the MP Entries, with the First Individual Image flagged as the
 default stream. If the file contains an ISO 21496-1 gain map, as is the case
 for JPEG Ultra HDR, the primary image and the gain map are linked by a
 @samp{gain_map} stream group, and the gain map parameters are exported as
-frame side data by the decoder.
+packet side data on the gain map stream. The native MJPEG decoder also
+exports them as frame side data.
 
 Images of any other type (e.g. large thumbnails or multi-view images) are
 exposed as additional streams.

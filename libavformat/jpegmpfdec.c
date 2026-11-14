@@ -71,16 +71,13 @@ typedef struct MPFDemuxContext {
 
 #define CHECK_IDENT(strc) (len >= sizeof(strc) && !memcmp(gb->buffer, strc, sizeof(strc)))
 
-static int mpf_probe(const AVProbeData *p)
+static int walk_jpeg_app2(GetByteContext *gb,
+                          int (*on_app2)(void *opaque, GetByteContext *gb, int len),
+                          void *opaque)
 {
-    GetByteContext gbc, *gb = &gbc;
-    bytestream2_init(gb, p->buf, p->buf_size);
-    if (bytestream2_get_be16(gb) != (0xFF00 | SOI))
-        return 0;
-
     while (bytestream2_get_bytes_left(gb) >= 4) {
         if (bytestream2_get_byte(gb) != 0xFF)
-            return 0; /* not a JPEG marker */
+            return AVERROR_INVALIDDATA; /* not a JPEG marker */
 
         int marker = bytestream2_get_byte(gb);
         while (marker == 0xFF && bytestream2_get_bytes_left(gb) > 0) /* fill bytes */
@@ -88,30 +85,52 @@ static int mpf_probe(const AVProbeData *p)
 
         if (marker == SOS || marker == TEM || (marker >= RST0 && marker <= EOI))
             return 0; /* start of entropy coded data */
-        else if (marker == 0xFF || bytestream2_get_bytes_left(gb) < 2)
-            break; /* need more data */
+        if (marker == 0xFF || bytestream2_get_bytes_left(gb) < 2)
+            return AVERROR(EAGAIN); /* need more data */
 
         const int len = bytestream2_get_be16(gb) - 2;
         if (len < 0)
-            return 0;
+            return AVERROR_INVALIDDATA;
         if (len > bytestream2_get_bytes_left(gb))
-            break;
+            return AVERROR(EAGAIN);
 
-        switch (marker) {
-        case APP2:
-            /* Marker segments unique to MPF files; the base image of a gain
-             * map file only carries the version fields of the ISO 21496-1
-             * metadata (two 16-bit integers); we don't want to false positive
-             * on standalone JPEGs that happen to contain gain map metadata */
-            if (CHECK_IDENT("MPF") ||
-                (CHECK_IDENT(AV_ISO21496_IDENTIFIER) &&
-                 len == sizeof(AV_ISO21496_IDENTIFIER) + sizeof(uint16_t[2])))
-                return AVPROBE_SCORE_EXTENSION + 10;
-            break;
+        if (marker == APP2 && on_app2) {
+            int ret = on_app2(opaque, gb, len);
+            if (ret)
+                return ret;
         }
 
         bytestream2_skip(gb, len);
     }
+
+    return AVERROR(EAGAIN);
+}
+
+static int probe_app2(void *opaque, GetByteContext *gb, int len)
+{
+    /* Marker segments unique to MPF files; the base image of a gain
+     * map file only carries the version fields of the ISO 21496-1
+     * metadata (two 16-bit integers); we don't want to false positive
+     * on standalone JPEGs that happen to contain gain map metadata */
+    if (CHECK_IDENT("MPF") ||
+        (CHECK_IDENT(AV_ISO21496_IDENTIFIER) &&
+         len == sizeof(AV_ISO21496_IDENTIFIER) + sizeof(uint16_t[2])))
+        return AVPROBE_SCORE_EXTENSION + 10;
+    return 0;
+}
+
+static int mpf_probe(const AVProbeData *p)
+{
+    GetByteContext gbc, *gb = &gbc;
+    bytestream2_init(gb, p->buf, p->buf_size);
+    if (bytestream2_get_be16(gb) != (0xFF00 | SOI))
+        return 0;
+
+    int ret = walk_jpeg_app2(gb, probe_app2, NULL);
+    if (ret > 0)
+        return ret;
+    if (ret != AVERROR(EAGAIN))
+        return 0;
 
     /* If we ran out of probe bytes, we don't know yet whether this is an
      * MPF file or not, unless the extension is unique to MPF files */
@@ -224,6 +243,41 @@ fail:
     return ret;
 }
 
+typedef struct AttachGainMapCtx {
+    AVFormatContext *ctx;
+    AVGainMapParams *gain;
+    size_t gain_size;
+} AttachGainMapCtx;
+
+static int parse_iso21496_app2(void *opaque, GetByteContext *gb, int len)
+{
+    AttachGainMapCtx *c = opaque;
+    const uint8_t *data = gb->buffer;
+
+    if (len < sizeof(AV_ISO21496_IDENTIFIER) ||
+        memcmp(data, AV_ISO21496_IDENTIFIER, sizeof(AV_ISO21496_IDENTIFIER)))
+        return 0;
+
+    data += sizeof(AV_ISO21496_IDENTIFIER);
+    len  -= sizeof(AV_ISO21496_IDENTIFIER);
+
+    /* Discard gain map version stubs from base layer */
+    if (len <= sizeof(uint16_t[2]))
+        return 0;
+
+    c->gain = av_gain_map_params_alloc(&c->gain_size);
+    if (!c->gain)
+        return AVERROR(ENOMEM);
+
+    int ret = av_gain_map_params_from_iso21496(c->gain, data, len);
+    if (ret < 0) {
+        av_log(c->ctx, AV_LOG_VERBOSE, "Failed to parse ISO 21496 gain map header\n");
+        av_freep(&c->gain);
+        return 0;
+    }
+    return 1;
+}
+
 static int parse_app2(AVFormatContext *ctx, int offset, int len)
 {
     MPFDemuxContext *s = ctx->priv_data;
@@ -255,6 +309,32 @@ static int cmp_image_start(const void *a, const void *b)
     if (ia->start != ib->start)
         return FFDIFFSIGN(ia->start, ib->start);
     return FFDIFFSIGN(ia->index, ib->index);
+}
+
+static int attach_gain_map_params(AVFormatContext *ctx, AVPacket *pkt)
+{
+    AttachGainMapCtx c = { .ctx = ctx };
+    GetByteContext gb;
+
+    if (pkt->size < 2)
+        return 0;
+    bytestream2_init(&gb, pkt->data, pkt->size);
+    if (bytestream2_get_be16(&gb) != (0xFF00 | SOI))
+        return 0;
+
+    /* Malformed/truncated headers are left for the decoder to deal with */
+    int ret = walk_jpeg_app2(&gb, parse_iso21496_app2, &c);
+    if (!c.gain)
+        return ret == AVERROR(ENOMEM) ? ret : 0;
+
+    /* The gain map image is not read in read_header(), and codecpar side
+     * data added afterwards would be overwritten by find_stream_info(),
+     * so attach the params to each gain map packet instead. */
+    ret = av_packet_add_side_data(pkt, AV_PKT_DATA_GAIN_MAP_PARAMS,
+                                  (uint8_t *)c.gain, c.gain_size);
+    if (ret < 0)
+        av_free(c.gain);
+    return ret;
 }
 
 static int add_gain_map_group(AVFormatContext *ctx, const MPFDemuxImage *base,
@@ -475,6 +555,13 @@ static int mpf_read_packet(AVFormatContext *ctx, AVPacket *pkt)
     pkt->pts = pkt->dts = s->pts;
     pkt->duration = 1;
     pkt->flags |= AV_PKT_FLAG_KEY;
+
+    if ((img->type & MPF_TYPE_INFO_MASK) == MPF_TYPE_GAIN_MAP) {
+        ret = attach_gain_map_params(ctx, pkt);
+        if (ret < 0)
+            return ret;
+    }
+
     return 0;
 }
 
